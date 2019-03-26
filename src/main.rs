@@ -1,5 +1,4 @@
-// cd /home/bonnemay/tests/rust/projects/dirplayer ; cargo run --verbose
-// cd /home/bonnemay/tests/rust/projects/dirplayer ; cargo build
+// cd /home/bonnemay/git/github/dirplayer/ ; cargo run --verbose
 // ./target/debug/dirplayer
 extern crate termion;
 
@@ -8,12 +7,14 @@ use termion::input::TermRead;
 use termion::raw::IntoRawMode;
 use termion::screen::{AlternateScreen, ToAlternateScreen, ToMainScreen};
 use std::io::{Write, stdout, stdin};
+use std::cmp;
 
 // use std::{env, fs};
 use std::{fs};
 use std::path::PathBuf;
 use std::fs::DirEntry;
 
+// use std::process;
 // use std::fs::ReadDir;
 
 // fn list_dir() -> Result<ReadDir> {
@@ -44,17 +45,18 @@ use std::fs::DirEntry;
 // }
 
 struct ConstBox {
-    inputZone: u16,
-    outputZone: u16,
+    input_zone: u16,
+    output_zone: u16,
 }
 
 static CONST_BOX: ConstBox = ConstBox {
-    inputZone: 1,
-    outputZone: 1,
+    input_zone: 1,
+    output_zone: 1,
 };
 
 pub struct FileList {
     files: Vec<DirEntry>,
+    files_number: u16,
 }
 
 impl FileList {
@@ -67,75 +69,66 @@ impl FileList {
                 Err(_) => {}
             }
         }
+        self.files_number = self.files.len() as u16;
     }
 }
 
-fn write_page<W: Write>(starting_line: u16, file_list: FileList, screen: &mut W)  {
+
+fn write_page<W: Write>(starting_line: u16, file_list: &FileList, screen: &mut W)  {
+    println!("{:?} starting_line", starting_line);
     let (_, height) = termion::terminal_size().unwrap();
-    let slice = &file_list.files[(starting_line as usize)..((height - (CONST_BOX.outputZone + CONST_BOX.inputZone + starting_line)) as usize)];
+    let ending_line = starting_line + height - (CONST_BOX.output_zone + CONST_BOX.input_zone);
+
+    let slice = &file_list.files[((starting_line) as usize)..(cmp::min(file_list.files_number, ending_line) as usize)];
     for (i, file_name) in slice.iter().enumerate() {
-        write!(screen, "{}{:?}", termion::cursor::Goto(1, i as u16 + CONST_BOX.inputZone + 1), file_name.path().as_os_str());
+        write!(screen, "{}{:?}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone + 1), file_name.path().as_os_str()).unwrap();
     }
 }
 
-fn get_dirs(current_dir: &PathBuf) -> Vec<DirEntry> {
-    let mut entries: Vec<DirEntry> = vec![];
-    for entry in fs::read_dir(current_dir).expect("Unable to list") {
-        match entry {
-            Ok(v) => {
-                entries.push(v);
-            }
-            Err(_) => {}
-        }
-    }
-    (entries)
-}
+// fn get_dirs(current_dir: &PathBuf) -> Vec<DirEntry> {
+//     let mut entries: Vec<DirEntry> = vec![];
+//     for entry in fs::read_dir(current_dir).expect("Unable to list") {
+//         match entry {
+//             Ok(v) => {
+//                 entries.push(v);
+//             }
+//             Err(_) => {}
+//         }
+//     }
+//     (entries)
+// }
 
-fn entries_to_filenames(entries: Vec<DirEntry>) -> Vec<PathBuf> {
-    let filenames: Vec<PathBuf> = entries.into_iter().map(|i| i.path()).collect();
-    (filenames)
-}
+// fn entries_to_filenames(entries: Vec<DirEntry>) -> Vec<PathBuf> {
+//     let filenames: Vec<PathBuf> = entries.into_iter().map(|i| i.path()).collect();
+//     (filenames)
+// }
 
 fn write_screen_msg<W: Write>(screen: &mut W, msg: &str) {
     write!(screen, "{}", msg).unwrap();
 }
 
-fn write_alt_screen_msg<W: Write>(screen: &mut W) {
-    let path: PathBuf = [r"/home", "bonnemay"].iter().collect();
-    // let entries: Vec<DirEntry> = get_dirs(&path);
-    // let filenames: Vec<PathBuf> = entries_to_filenames(entries);
-
+fn write_alt_screen_msg<W: Write>(screen: &mut W, file_list: &FileList, current_index :u16) {
     write!(screen, "{}",
            termion::clear::All)
         .unwrap();
 
-    let mut entries = FileList{
-        files: Vec::<DirEntry>::new(),
-    };
-
-    entries.set_files(path);
-    write_page(0u16, entries, screen);
-
-    // write!(screen, "{}{}Welcome to the alternate screen.",
-    //        termion::clear::All,
-    //        termion::cursor::Goto(1, 1))
-    //     .unwrap();
-
-    // for (i, filename) in filenames.iter().enumerate() {
-    //     write!(screen, "{}{:?}", termion::cursor::Goto(1, i as u16), filename.as_os_str());
-    // }
-
-    // write!(screen, "{}Press '1' to switch to the main screen or '2' to switch to the alternate screen.{}Press 'q' to exit (and switch back to the main screen).",
-    //        termion::cursor::Goto(1, 3),
-    //        termion::cursor::Goto(1, 4))
-    //     .unwrap();
+    write_page(current_index, &file_list, screen);
 }
 
 fn main() {
+    let mut path: PathBuf = [r"/home", "bonnemay"].iter().collect();
+    let mut entries = FileList{
+        files: Vec::<DirEntry>::new(),
+        files_number: 0u16,
+    };
+
+    entries.set_files(path);
+    let mut current_index = 0u16;
+
     let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
     write!(screen, "{}", termion::cursor::Hide).unwrap();
     write_screen_msg(&mut screen, "qsdfv");
-    write_alt_screen_msg(&mut screen);
+    write_alt_screen_msg(&mut screen, &entries, current_index);
     screen.flush().unwrap();
 
     let stdin = stdin();
@@ -147,7 +140,20 @@ fn main() {
             }
             Key::Char('2') => {
                 write!(screen, "{}", ToAlternateScreen).unwrap();
-                write_alt_screen_msg(&mut screen);
+                write_alt_screen_msg(&mut screen, &entries, current_index);
+            }
+            Key::Char('j') => {
+                if current_index < entries.files_number {
+                    current_index += 1;
+                }
+
+                write_alt_screen_msg(&mut screen, &entries, current_index);
+            }
+            Key::Char('k') => {
+                if current_index > 0 {
+                    current_index -= 1;
+                }
+                write_alt_screen_msg(&mut screen, &entries, current_index);
             }
             _ => {}
         }
