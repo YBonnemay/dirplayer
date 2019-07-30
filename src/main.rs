@@ -32,8 +32,8 @@ struct DPConfig {
 }
 
 struct ConstBox {
-    input_zone: u16,
-    output_zone: u16,
+    input_zone: i16,
+    output_zone: i16,
 }
 
 static CONST_BOX: ConstBox = ConstBox {
@@ -41,15 +41,16 @@ static CONST_BOX: ConstBox = ConstBox {
     output_zone: 1,
 };
 
-fn write_page<W: Write>(starting_line: u16, timer: &FileList, screen: &mut W)  {
+fn write_page<W: Write>(timer: &FileList, screen: &mut W)  {
+    let starting_line = timer.current_index;
     let (_, height) = termion::terminal_size().unwrap();
-    let ending_line = starting_line + height - (CONST_BOX.output_zone + CONST_BOX.input_zone);
+    let ending_line = starting_line + height as i16 - (CONST_BOX.output_zone + CONST_BOX.input_zone);
     let lock = timer.files.read().unwrap();
-    let files_len = lock.len() as u16;
+    let files_len = lock.len() as i16;
     let slice = &lock[((starting_line) as usize)..(cmp::min(files_len, ending_line) as usize)];
     for (i, file_name) in slice.iter().enumerate() {
         let root_dir = timer.root_dir.clone();
-        write!(screen, "{}{}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone + 1), file_name.path().strip_prefix(root_dir).unwrap().to_str().unwrap()).unwrap();
+        write!(screen, "{}{}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone as u16 + 1), file_name.path().strip_prefix(root_dir).unwrap().to_str().unwrap()).unwrap();
     }
 }
 
@@ -57,10 +58,19 @@ fn write_screen_msg<W: Write>(screen: &mut W, msg: &str) {
     write!(screen, "{}", msg).unwrap();
 }
 
-fn write_alt_screen_msg<W: Write>(screen: &mut W, timer: &FileList, current_index :u16) {
-    println!("write_alt_screen_msg");
+fn write_alt_screen_msg<W: Write>(screen: &mut W, timer: &mut FileList, increment :i16) {
+
+    let incremented = timer.current_index + increment;
+    if incremented > timer.files_len()
+        || incremented < 0
+    {
+        return
+    }
+
+    timer.current_index = incremented;
+    println!("write_alt_screen_msg normal{:#?}", timer.current_index);
     write!(screen, "{}", termion::clear::All).unwrap();
-    write_page(current_index, &timer, screen);
+    write_page(&timer, screen);
 }
 
 fn get_config() -> DPConfig {
@@ -73,9 +83,9 @@ fn get_config() -> DPConfig {
 pub struct FileList {
     handle: Option<thread::JoinHandle<()>>,
     files: Arc<RwLock<Vec<DirEntry>>>,
-    files_number: u16,
     config: DPConfig,
     root_dir: PathBuf,
+    current_index: i16,
 }
 
 impl FileList {
@@ -122,9 +132,9 @@ impl FileList {
         Ok(())
     }
 
-    pub fn files_len(&self) -> u16 {
+    pub fn files_len(&self) -> i16 {
         let files = &self.files.read().unwrap();
-        files.len() as u16
+        files.len() as i16
     }
 
     // https://stackoverflow.com/questions/42043823/design-help-threading-within-a-struct
@@ -137,7 +147,6 @@ impl FileList {
 
         // Get a reference old files
         let old_files = self.files.clone();
-        let mut files_number = self.files_number.clone();
         let config = self.config.clone();
 
         self.handle = Some(thread::spawn(move || {
@@ -153,8 +162,6 @@ impl FileList {
                 let mut lock = old_files.write().unwrap();
                 lock.truncate(0);
                 lock.append(new_files);
-
-                files_number = lock.len() as u16;
             }
         }));
     }
@@ -163,9 +170,9 @@ impl FileList {
         FileList {
             handle: None,
             files: Arc::new(RwLock::new(Vec::<DirEntry>::new())),
-            files_number: 0u16,
             config: config,
             root_dir: path,
+            current_index: 0i16,
         }
     }
 }
@@ -176,14 +183,14 @@ fn main() {
 
     let path: PathBuf = [r"/home", "bonnemay", "downloads", "aa_inbox", "Adrien"].iter().collect();
 
-    let mut current_index = 0u16;
+    // let mut current_index = 0i16;
     let mut timer = FileList::new(config, path);
     timer.start_refresh();
 
     let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
     write!(screen, "{}", termion::cursor::Hide).unwrap();
     write_screen_msg(&mut screen, "qsdfv");
-    write_alt_screen_msg(&mut screen, &timer, current_index);
+    write_alt_screen_msg(&mut screen, &mut timer, 0i16);
     screen.flush().unwrap();
 
     let stdin = stdin();
@@ -196,25 +203,17 @@ fn main() {
             }
             Key::Char('2') => {
                 write!(screen, "{}", ToAlternateScreen).unwrap();
-                write_alt_screen_msg(&mut screen, &timer, current_index);
+                write_alt_screen_msg(&mut screen, &mut timer, 0i16);
             }
             Key::Char('i') => {
                 write!(screen, "{}", ToAlternateScreen).unwrap();
-                write_alt_screen_msg(&mut screen, &timer, current_index);
+                write_alt_screen_msg(&mut screen, &mut timer, 0i16);
             }
             Key::Down => {
-                if current_index < timer.files_len() {
-                    current_index += 1;
-                }
-                println!("current_index{:#?}", current_index);
-                println!("timer.files_len(){:#?}", timer.files_len());
-                write_alt_screen_msg(&mut screen, &timer, current_index);
+                write_alt_screen_msg(&mut screen, &mut timer, 1i16);
             }
             Key::Up => {
-                if current_index > 0 {
-                    current_index -= 1;
-                }
-                write_alt_screen_msg(&mut screen, &timer, current_index);
+                write_alt_screen_msg(&mut screen, &mut timer, -1i16);
             }
             _ => {}
         }
