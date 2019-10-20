@@ -1,196 +1,166 @@
-
-// cd /home/bonnemay/git/github/dirplayer/ ; cargo run --verbose
-// ./target/debug/dirplayer
-// println!("write_page{:#?}", lock.len());
 extern crate termion;
-
-use termion::event::Key;
-use termion::input::TermRead;
-use termion::raw::IntoRawMode;
-use termion::screen::{AlternateScreen, ToAlternateScreen, ToMainScreen};
-use std::io::{Write, stdout, stdin};
-use std::{cmp, time};
-
-use std::thread;
-use std::sync::{Arc, RwLock};
-
-// use std::{env, fs};
-use std::{fs};
-use std::path::PathBuf;
-use std::fs::DirEntry;
-use std::error::Error;
-
+extern crate crossbeam_channel;
+extern crate walkdir;
 extern crate serde;
 extern crate serde_json;
 
 #[macro_use]
 extern crate serde_derive;
 
-#[derive(Deserialize, Debug, Clone)]
-struct DPConfig {
+// cd /home/bonnemay/git/github/dirplayer/ ; cargo run --verbose
+// ./target/debug/dirplayer
+// println!("write_page{:#?}", lock.len());
+
+
+use termion::event::Key;
+use termion::input::TermRead;
+use termion::raw::{IntoRawMode};
+use termion::screen::{AlternateScreen, ToAlternateScreen, ToMainScreen};
+use std::io::{Write, stdout, stdin};
+use walkdir::WalkDir;
+
+use std::thread;
+use std::sync::{Arc, RwLock};
+
+use std::time;
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    working_directory: String,
     extensions: Vec< String >,
 }
 
-struct ConstBox {
-    input_zone: i16,
-    output_zone: i16,
+fn get_config() -> Config {
+    let json = include_str!("/home/bonnemay/git/github/dirplayer/src/config/config.json");
+    println!("{}", json);
+    serde_json::from_str::<Config>(&json).unwrap()
 }
 
-static CONST_BOX: ConstBox = ConstBox {
-    input_zone: 1,
-    output_zone: 1,
-};
+pub trait Zone {
+    fn get_length(&self) -> i16;
+    fn set_length(&mut self, length: i16);
+    fn get_start(&self) -> i16;
+    fn set_start(&mut self, length: i16);
+    fn get_lines(&self) -> Vec<String>;
+}
 
-fn write_page<W: Write>(timer: &FileList, screen: &mut W)  {
-    let starting_line = timer.current_index;
-    let (_, height) = termion::terminal_size().unwrap();
-    let ending_line = starting_line + height as i16 - (CONST_BOX.output_zone + CONST_BOX.input_zone);
-    let lock = timer.files.read().unwrap();
-    let files_len = lock.len() as i16;
-    let slice = &lock[((starting_line) as usize)..(cmp::min(files_len, ending_line) as usize)];
-    for (i, file_name) in slice.iter().enumerate() {
-        let root_dir = timer.root_dir.clone();
-        write!(screen, "{}{}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone as u16 + 1), file_name.path().strip_prefix(root_dir).unwrap().to_str().unwrap()).unwrap();
+struct Zones {
+    pub zones: Vec<Box<dyn Zone>>,
+}
+
+impl Zones {
+    fn add_zone(&mut self, zone: Box<dyn Zone>) {
+        self.zones.push(zone);
+    }
+
+    fn redisplay() {
+
+        // thread::spawn(move || {
+        //     loop {
+        //         thread::sleep(Duration::from_millis(1000));
+        //         let config = get_config();
+        //         let working_directory = config.working_directory.clone();
+        //         // let root_dir = PathBuf::from(working_directory);
+        //         let walker = WalkDir::new(working_directory).into_iter();
+        //         let new_files = &mut Vec::<DirEntry>::new();
+        //         // get_files(&root_dir, &config, new_files).unwrap();
+        //     }
+        // });
     }
 }
+
+struct Display {
+    length: i16,
+    start: i16,
+    lines: Arc<RwLock<Vec<String>>>,
+    handle: Option<thread::JoinHandle<()>>,
+}
+
+impl Display {
+    fn refresh_start(&self) {
+        let lines = self.lines.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(time::Duration::from_millis(1000));
+                let config = get_config();
+                let working_directory = config.working_directory.clone();
+
+                let new_lines = WalkDir::new(working_directory)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .map(|e| String::from(e.file_name().to_string_lossy()))
+                    .collect::<Vec<String>>();
+
+                let mut writable_lines = lines.write().unwrap();
+                *writable_lines = new_lines;
+            }
+        });
+    }
+}
+
+
+impl Zone for Display {
+
+    fn get_length(&self) -> i16 {
+        self.length
+    }
+
+    fn set_length(&mut self, length: i16) {
+        self.length = length;
+    }
+
+    fn get_start(&self) -> i16 {
+        self.start
+    }
+
+    fn set_start(&mut self, start: i16) {
+        self.start = start;
+    }
+
+    fn get_lines(&self) -> Vec<String> {
+        let lines = self.lines.read().unwrap();
+        lines.to_vec()
+    }
+}
+
+// pub fn write_lines_to_screen<W: Write>(lines: std::vec::Vec<std::string::String>, screen: &mut W) {
+//     for (i, line) in lines.into_iter().enumerate() {
+//         write!(screen, "{}{}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone as u16 + 1), line).unwrap();
+//     }
+// }
+
+// pub fn write_zone_to_screen<W: Write>(zone: & Zone, screen: &mut W) {
+//     let lines = zone.get_lines();
+//     for (i, line) in lines.into_iter().enumerate() {
+//         write!(screen, "{}{}", termion::cursor::Goto(1, i as u16 + CONST_BOX.input_zone as u16 + 1), line).unwrap();
+//     }
+// }
 
 fn write_screen_msg<W: Write>(screen: &mut W, msg: &str) {
     write!(screen, "{}", msg).unwrap();
 }
 
-fn write_alt_screen_msg<W: Write>(screen: &mut W, timer: &mut FileList, increment :i16) {
-
-    let incremented = timer.current_index + increment;
-    if incremented > timer.files_len()
-        || incremented < 0
-    {
-        return
-    }
-
-    timer.current_index = incremented;
-    println!("write_alt_screen_msg normal{:#?}", timer.current_index);
-    write!(screen, "{}", termion::clear::All).unwrap();
-    write_page(&timer, screen);
-}
-
-fn get_config() -> DPConfig {
-    let json = include_str!("/home/bonnemay/git/github/dirplayer/src/config/config.json");
-    println!("{}", json);
-    serde_json::from_str::<DPConfig>(&json).unwrap()
-}
-
-
-pub struct FileList {
-    handle: Option<thread::JoinHandle<()>>,
-    files: Arc<RwLock<Vec<DirEntry>>>,
-    config: DPConfig,
-    root_dir: PathBuf,
-    current_index: i16,
-}
-
-impl FileList {
-
-    fn get_files(current_dir: &PathBuf, config: &DPConfig, files: &mut Vec<DirEntry> )
-                 -> Result<(), Box<Error>> {
-        // println!("current_dir{:#?}", current_dir);
-        // println!("config{:#?}", config);
-        // println!("files{:#?}", files);
-        for entry in fs::read_dir(current_dir)? {
-            let entry = entry?;
-            let path = &entry.path();
-            if path.is_dir() {
-                FileList::get_files(path, config, files).unwrap();
-            } else {
-                let os_extension = path.extension().unwrap();
-                let extension = os_extension.to_str().unwrap();
-                let extension_string = extension.to_string();
-                if config.extensions.contains(&extension_string) {
-                    files.push(entry);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn set_files(&mut self, current_dir: PathBuf) -> Result<(), Box<Error>> {
-        for entry in fs::read_dir(current_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                self.set_files(path).unwrap();
-            } else {
-                let os_extension = path.extension().unwrap();
-                let extension = os_extension.to_str().unwrap();
-                let extension_string = extension.to_string();
-                if self.config.extensions.contains(&extension_string) {
-                    let files = self.files.clone();
-                    let mut lock = files.write().unwrap();
-                    lock.push(entry);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn files_len(&self) -> i16 {
-        let files = &self.files.read().unwrap();
-        files.len() as i16
-    }
-
-    // https://stackoverflow.com/questions/42043823/design-help-threading-within-a-struct
-    pub fn start_refresh(&mut self)
-    {
-        // let mut lockedFiles = self.files.read().unwrap();
-        // let files = &mut Vec::<DirEntry>::new();
-        let root_dir = self.root_dir.clone();
-        // FileList::get_files(&self.root_dir, &self.config, files).unwrap();
-
-        // Get a reference old files
-        let old_files = self.files.clone();
-        let config = self.config.clone();
-
-        self.handle = Some(thread::spawn(move || {
-            // Get updated file list
-
-            loop {
-                thread::sleep(time::Duration::from_millis(1000));
-                let new_files = &mut Vec::<DirEntry>::new();
-                // println!("BBBB{:#?}", root_dir);
-                FileList::get_files(&root_dir, &config, new_files).unwrap();
-
-                // Update Mutexed
-                let mut lock = old_files.write().unwrap();
-                lock.truncate(0);
-                lock.append(new_files);
-            }
-        }));
-    }
-
-    fn new(config: DPConfig, path: PathBuf) -> FileList {
-        FileList {
-            handle: None,
-            files: Arc::new(RwLock::new(Vec::<DirEntry>::new())),
-            config: config,
-            root_dir: path,
-            current_index: 0i16,
-        }
-    }
-}
-
 fn main() {
+    let mut zones = Zones {
+        zones: Vec::new(),
+    };
 
-    let config = get_config();
+    // let mut zone = DirectoryZone::new();
+    // zone.set_start(0);
+    // zone.start_refresh();
+    // zones.add_zone(zone);
 
-    let path: PathBuf = [r"/home", "bonnemay", "downloads", "aa_inbox", "Adrien"].iter().collect();
-
+    // let path: PathBuf = [r"/home", "bonnemay", "downloads", "aa_inbox", "Adrien"].iter().collect();
+    // let config = get_config();
     // let mut current_index = 0i16;
-    let mut timer = FileList::new(config, path);
-    timer.start_refresh();
+    // let mut timer = FileList::new(config, path);
+    // timer.start_refresh();
 
     let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
     write!(screen, "{}", termion::cursor::Hide).unwrap();
     write_screen_msg(&mut screen, "qsdfv");
-    write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+    // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+    // display_zones(&zones, &mut screen);
     screen.flush().unwrap();
 
     let stdin = stdin();
@@ -203,17 +173,21 @@ fn main() {
             }
             Key::Char('2') => {
                 write!(screen, "{}", ToAlternateScreen).unwrap();
-                write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+                // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+                                // display_zones(&zones, &mut screen);
             }
             Key::Char('i') => {
                 write!(screen, "{}", ToAlternateScreen).unwrap();
-                write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+                // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
+                                // display_zones(&zones, &mut screen);
             }
             Key::Down => {
-                write_alt_screen_msg(&mut screen, &mut timer, 1i16);
+                // display_zones(&zones, &mut screen);
+                // write_alt_screen_msg(&mut screen, &mut timer, 1i16);
             }
             Key::Up => {
-                write_alt_screen_msg(&mut screen, &mut timer, -1i16);
+                // write_alt_screen_msg(&mut screen, &mut timer, -1i16);
+                                // display_zones(&zones, &mut screen);
             }
             _ => {}
         }
