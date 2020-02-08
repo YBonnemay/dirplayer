@@ -8,15 +8,18 @@ extern crate serde_json;
 extern crate serde_derive;
 
 // cd /home/bonnemay/git/github/dirplayer/ ; cargo run --verbose
+// cd /home/bonnemay/git/github/dirplayer/ ; RUST_BACKTRACE=1 cargo run --verbose
 // ./target/debug/dirplayer
 // println!("write_page{:#?}", lock.len());
-
 
 use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::{IntoRawMode};
-use termion::screen::{AlternateScreen, ToAlternateScreen, ToMainScreen};
-use std::io::{Write, stdout, stdin};
+// use termion::screen::{AlternateScreen, ToAlternateScreen, ToMainScreen};
+use termion::screen::{AlternateScreen};
+use termion::raw::RawTerminal;
+use std::io::{Write, Stdout, stdout, stdin};
+use std::cmp;
 use walkdir::WalkDir;
 
 use std::thread;
@@ -32,51 +35,114 @@ struct Config {
 
 fn get_config() -> Config {
     let json = include_str!("/home/bonnemay/git/github/dirplayer/src/config/config.json");
-    println!("{}", json);
     serde_json::from_str::<Config>(&json).unwrap()
 }
 
 pub trait Zone {
+    fn get_zone_offset_start(&self) -> i16;
+    fn get_zone_offset_end(&self) -> i16;
+    fn set_zone_offset_start(&mut self, weight: i16);
+    fn set_zone_offset_end(&mut self, weight: i16);
+
     fn get_length(&self) -> i16;
-    fn set_length(&mut self, length: i16);
-    fn get_start(&self) -> i16;
-    fn set_start(&mut self, length: i16);
     fn get_lines(&self) -> Vec<String>;
+    fn use_keystroke(&mut self, Key);
 }
 
 struct Zones {
     pub zones: Vec<Box<dyn Zone>>,
+    pub screen: AlternateScreen<RawTerminal<Stdout>>,
+    pub current_zone: i16,
 }
 
 impl Zones {
-    fn add_zone(&mut self, zone: Box<dyn Zone>) {
-        self.zones.push(zone);
+    fn new(screen: AlternateScreen<RawTerminal<Stdout>>) -> Zones {
+        Zones {
+            zones: Vec::new(),
+            screen: screen,
+            current_zone: 0,
+        }
     }
 
-    fn redisplay() {
+    fn get_lengths(&self) -> i16 {
+        let zones = &self.zones;
+        let mut lengths = 0;
+        for existing_zone in zones {
+            lengths+= existing_zone.get_length();
+        }
+        lengths
+    }
 
-        // thread::spawn(move || {
-        //     loop {
-        //         thread::sleep(Duration::from_millis(1000));
-        //         let config = get_config();
-        //         let working_directory = config.working_directory.clone();
-        //         // let root_dir = PathBuf::from(working_directory);
-        //         let walker = WalkDir::new(working_directory).into_iter();
-        //         let new_files = &mut Vec::<DirEntry>::new();
-        //         // get_files(&root_dir, &config, new_files).unwrap();
-        //     }
-        // });
+    fn add_zone(&mut self, mut zone:  Box<dyn Zone>) {
+        self.zones.push(zone)
+    }
+
+    fn display(&mut self) {
+        self.flush();
+        let zones = &mut self.zones;
+        let terminal_size = termion::terminal_size().unwrap();
+
+        for zone in zones {
+            let lines = zone.get_lines();
+            let zone_offset_start = zone.get_zone_offset_start() as usize;
+
+            for (i, line) in lines.into_iter().enumerate() {
+                let mut line = line;
+                write!(
+                    self.screen,
+                    "{}{}",
+                    termion::cursor::Goto(1, (i + zone_offset_start) as u16),
+                    termion::clear::CurrentLine
+                ).unwrap();
+                line.truncate(terminal_size.0 as usize);
+                write!(
+                    self.screen,
+                    "{}{}",
+                    termion::cursor::Goto(1, (i + zone_offset_start) as u16),
+                    line
+                ).unwrap();
+
+            }
+        }
+    }
+
+    fn flush(&mut self) {
+        self.screen.flush().unwrap();
+    }
+
+    // fn set_current_zone(&mut self, current_zone: i16) {
+    //     self.current_zone = current_zone
+    // }
+
+    fn send_keystroke(&mut self, key: Key) {
+        self.zones[self.current_zone as usize].use_keystroke(key);
     }
 }
 
-struct Display {
-    length: i16,
+struct MiddleZone {
+    // https://users.rust-lang.org/t/heartbeat-in-a-thread-done-right/13596
+    x_index: i16,
+    zone_offset_start: i16,
+    zone_offset_end: i16,
     start: i16,
     lines: Arc<RwLock<Vec<String>>>,
-    handle: Option<thread::JoinHandle<()>>,
+    lines_index: i16,
+    // handle: Option<thread::JoinHandle<()>>,
 }
 
-impl Display {
+impl MiddleZone {
+    fn new() -> MiddleZone {
+        MiddleZone {
+            x_index: 0,
+            zone_offset_start: 0,
+            zone_offset_end: 0,
+            start: 0,
+            lines: Arc::new(RwLock::new(Vec::new())),
+            lines_index: 0,
+            // handle: None,
+        }
+    }
+
     fn refresh_start(&self) {
         let lines = self.lines.clone();
         thread::spawn(move || {
@@ -98,28 +164,57 @@ impl Display {
     }
 }
 
+impl Zone for MiddleZone {
 
-impl Zone for Display {
+    fn get_zone_offset_start(&self) -> i16 {
+        self.zone_offset_start
+    }
+
+    fn set_zone_offset_start(&mut self, zone_offset_start: i16) {
+        self.zone_offset_start = zone_offset_start + 1;
+    }
+
+    fn get_zone_offset_end(&self) -> i16 {
+        self.zone_offset_end
+    }
+
+    fn set_zone_offset_end(&mut self, zone_offset_end: i16) {
+        self.zone_offset_end = zone_offset_end;
+    }
 
     fn get_length(&self) -> i16 {
-        self.length
-    }
-
-    fn set_length(&mut self, length: i16) {
-        self.length = length;
-    }
-
-    fn get_start(&self) -> i16 {
-        self.start
-    }
-
-    fn set_start(&mut self, start: i16) {
-        self.start = start;
+        let terminal_size = termion::terminal_size().unwrap();
+        terminal_size.1 as i16 - self.get_zone_offset_start() + self.get_zone_offset_end()
     }
 
     fn get_lines(&self) -> Vec<String> {
-        let lines = self.lines.read().unwrap();
-        lines.to_vec()
+        // let lines = self.lines.read().unwrap();
+        // return lines.to_vec();
+        let lines = self.lines.read().unwrap().to_vec();
+        let lines_len = lines.len();
+        let lines_index = self.lines_index as usize;
+        let lines_start = cmp::min(lines_len, lines_index);
+        let lines_end = cmp::min(lines_len, lines_index + self.get_length() as usize);
+
+        // println!("lines_start {:#?}", lines_start);
+        // println!("lines_end {:#?}", lines_end);
+        // println!("self.get_length() {:#?}", self.get_length());
+
+        return (lines[lines_start as usize..lines_end as usize]).to_vec();
+    }
+
+    fn use_keystroke(&mut self, key: Key) {
+        match key {
+            Key::Down => {
+                self.lines_index = self.lines_index + 1;
+            }
+            Key::Up => {
+                if self.lines_index > 0 {
+                    self.lines_index = self.lines_index - 1;
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -136,14 +231,22 @@ impl Zone for Display {
 //     }
 // }
 
-fn write_screen_msg<W: Write>(screen: &mut W, msg: &str) {
-    write!(screen, "{}", msg).unwrap();
-}
+// fn write_screen_msg<W: Write>(screen: &mut W, msg: &str) {
+//     write!(screen, "{}", msg).unwrap();
+// }
 
 fn main() {
-    let mut zones = Zones {
-        zones: Vec::new(),
-    };
+    let screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+    let mut zones = Zones::new(screen);
+    let mut middle_zone = Box::new(MiddleZone::new());
+
+    middle_zone.set_zone_offset_end(-1);
+    middle_zone.set_zone_offset_start(1);
+    // middle_zone.set_length(10);
+    middle_zone.refresh_start();
+    zones.add_zone(middle_zone);
+    zones.display();
+    zones.flush();
 
     // let mut zone = DirectoryZone::new();
     // zone.set_start(0);
@@ -152,46 +255,41 @@ fn main() {
 
     // let path: PathBuf = [r"/home", "bonnemay", "downloads", "aa_inbox", "Adrien"].iter().collect();
     // let config = get_config();
-    // let mut current_index = 0i16;
+
     // let mut timer = FileList::new(config, path);
     // timer.start_refresh();
 
-    let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
-    write!(screen, "{}", termion::cursor::Hide).unwrap();
-    write_screen_msg(&mut screen, "qsdfv");
-    // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
     // display_zones(&zones, &mut screen);
-    screen.flush().unwrap();
 
     let stdin = stdin();
     for c in stdin.keys() {
         let key = c.unwrap();
         match key {
             Key::Char('q') => break,
-            Key::Char('1') => {
-                write!(screen, "{}", ToMainScreen).unwrap();
+            _ => {
+                zones.send_keystroke(key);
+                zones.display();
             }
-            Key::Char('2') => {
-                write!(screen, "{}", ToAlternateScreen).unwrap();
-                // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
-                                // display_zones(&zones, &mut screen);
-            }
-            Key::Char('i') => {
-                write!(screen, "{}", ToAlternateScreen).unwrap();
-                // write_alt_screen_msg(&mut screen, &mut timer, 0i16);
-                                // display_zones(&zones, &mut screen);
-            }
-            Key::Down => {
-                // display_zones(&zones, &mut screen);
-                // write_alt_screen_msg(&mut screen, &mut timer, 1i16);
-            }
-            Key::Up => {
-                // write_alt_screen_msg(&mut screen, &mut timer, -1i16);
-                                // display_zones(&zones, &mut screen);
-            }
-            _ => {}
+            // Key::Char('1') => {
+            //     zones.display();
+            // }
+            // Key::Char('2') => {
+            //     zones.display();
+            // }
+            // Key::Char('i') => {
+            //     zones.display();
+            // }
+            // Key::Down => {
+            //     zones.display();
+            // }
+            // Key::Up => {
+            //     // write_alt_screen_msg(&mut screen, &mut timer, -1i16);
+            //     // display_zones(&zones, &mut screen);
+            // }
+            // Key::Down => {
+            //     zones.display();
+            // }
         }
-        screen.flush().unwrap();
+        zones.flush();
     }
-    write!(screen, "{}", termion::cursor::Show).unwrap();
 }
