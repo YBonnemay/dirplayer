@@ -1,5 +1,7 @@
 {
   "working_directory": "/home/bonnemay/downloads/aa_inbox/Adrien",
+  "tick_rate": "250",
+  "enhanced_graphics": true,
   "extensions": [
     "mp3",
     "mp4",

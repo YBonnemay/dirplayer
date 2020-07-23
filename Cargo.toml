@@ -4,10 +4,13 @@ version = "0.1.0"
 authors = ["Yann Bonnemay <y.bonnemay@gmail.com>"]
 
 [dependencies]
-termion = "*"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "*"
-serde_derive = "*"
+argh = "*"
 crossbeam = "*"
 crossbeam-channel = "*"
+crossterm = "*"
+rand = "*"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "*"
+serde_json = "*"
+tui =  { version = "0.9", default-features = false, features = ['crossterm'] }
 walkdir = "2"
