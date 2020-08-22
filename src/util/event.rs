@@ -65,6 +65,7 @@ impl Events {
                 }
             })
         };
+
         let tick_handle = {
             thread::spawn(move || loop {
                 tx.send(Event::Tick).unwrap();

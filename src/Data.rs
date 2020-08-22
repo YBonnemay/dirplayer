@@ -13,6 +13,7 @@ pub struct Signal<S: Iterator> {
     pub points: Vec<S::Item>,
     tick_rate: usize,
 }
+
 impl<S> Signal<S>
 where
     S: Iterator,

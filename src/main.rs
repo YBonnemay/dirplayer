@@ -1,6 +1,7 @@
 extern crate argh;
 extern crate crossbeam_channel;
 extern crate crossterm;
+extern crate notify;
 extern crate serde;
 extern crate serde_json;
 extern crate tui;
@@ -8,6 +9,8 @@ extern crate walkdir;
 
 #[macro_use]
 extern crate serde_derive;
+
+// reale time updating of the data
 
 // cd /home/bonnemay/github/tui-rs/example/ ; cargo run --verbose
 // cd /home/bonnemay/github/dirplayer/ ; cargo run --verbose
@@ -35,7 +38,7 @@ use crossterm::{
 
 use std::time;
 
-use tui::{backend::CrosstermBackend, Terminal};
+// use tui::{backend::CrosstermBackend, Terminal};
 // use tui::{backend::CrosstermBackend, Terminal};
 
 // use tui::backend::Backend;
@@ -218,76 +221,8 @@ impl Zone for MiddleZone {
 }
 
 // use std::io::Write::flush as Wflush;
+
 use std::io::{stdout, Write};
-
-fn main() -> Result<(), Box<dyn Error>> {
-    enable_raw_mode()?;
-    let config = get_config();
-
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-
-    let mut terminal = Terminal::new(backend)?;
-    terminal.hide_cursor()?;
-
-    // Setup input handling
-    let (tx, rx) = mpsc::channel();
-    let tick_rate_u64 = config.tick_rate.parse().unwrap();
-    let tick_rate = Duration::from_millis(tick_rate_u64);
-
-    thread::spawn(move || {
-        let mut last_tick = Instant::now();
-        loop {
-            let timeBeforeTick = tick_rate - last_tick.elapsed();
-
-            if event::poll(timeBeforeTick).unwrap() {
-                if let CEvent::Key(key) = event::read().unwrap() {
-                    tx.send(Event::Input(key)).unwrap();
-                }
-            }
-
-            if timeBeforeTick <= Duration::new(0, 0) {
-                tx.send(Event::Tick).unwrap();
-                last_tick = Instant::now();
-            }
-        }
-    });
-
-    let mut data = Data::Data::new();
-    terminal.clear()?;
-
-    loop {
-        terminal.draw(|mut f| draw(&mut f, &mut data))?;
-        match rx.recv()? {
-            Event::Input(event) => match event.code {
-                KeyCode::Char('q') => {
-                    disable_raw_mode()?;
-                    execute!(
-                        terminal.backend_mut(),
-                        LeaveAlternateScreen,
-                        DisableMouseCapture
-                    )?;
-                    terminal.show_cursor()?;
-                    break;
-                }
-                KeyCode::Char(c) => data.on_key(c),
-                KeyCode::Left => data.on_left(),
-                KeyCode::Up => data.on_up(),
-                KeyCode::Right => data.on_right(),
-                KeyCode::Down => data.on_down(),
-                _ => {}
-            },
-            Event::Tick => {
-                data.on_tick();
-            }
-        }
-        if data.should_quit {
-            break;
-        }
-    }
-    Ok(())
-}
 
 pub fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, data: &mut Data::Data) {
     let chunks = Layout::default()
@@ -355,4 +290,75 @@ where
             f.render_stateful_widget(tasks, chunks[0], &mut data.tasks.state);
         }
     }
+}
+
+use notify::{watcher, RecursiveMode, Watcher};
+use std::path::PathBuf;
+use std::sync::mpsc::channel;
+
+// A DataSource represents data that will de displayed. A DirectoryDataSource is a watched directory
+// A Displayer
+
+pub trait DataSource<T> {
+    fn get_lines(&self) -> Vec<T>;
+}
+
+// THis will represent a Directory for us
+struct Directory {
+    path: PathBuf,
+    watcher: notify::INotifyWatcher,
+    walk_dir: WalkDir,
+    receiver: std::sync::mpsc::Receiver<notify::DebouncedEvent>,
+    // sender: std::sync::mpsc::Sender<notify::DebouncedEvent>,
+    // receiver: mpsc::Receiver<notify::DebouncedEvent>,
+}
+
+impl Directory {
+    fn new(path: PathBuf) -> Directory {
+        let (sender, receiver) = channel();
+        let mut watcher = watcher(sender, Duration::from_secs(1)).unwrap();
+        let walk_dir = WalkDir::new(path.clone());
+
+        // Watching directory.
+        watcher
+            .watch(path.clone(), RecursiveMode::Recursive)
+            .unwrap();
+
+        Directory {
+            path,
+            watcher,
+            walk_dir,
+            receiver,
+        }
+    }
+
+    fn listen(mut self) {
+        // Listening to changes.
+        thread::spawn(move || loop {
+            match self.receiver.recv() {
+                Ok(event) => {
+                    self.walk_dir = WalkDir::new(self.path.clone());
+                    println!("{:?}", event);
+                }
+                Err(e) => println!("watch error: {:?}", e),
+            };
+            println!("thread loopng");
+        });
+    }
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
+    directory.listen();
+    // thread::spawn(move || loop {
+    //     match directory.receiver.recv() {
+    //         Ok(event) => println!("{:?}", event),
+    //         Err(e) => println!("watch error: {:?}", e),
+    //     };
+    //     println!("thread loopng");
+    // });
+
+    loop {}
+
+    Ok(())
 }
