@@ -37,9 +37,7 @@ use crossterm::{
 };
 
 use std::time;
-
-// use tui::{backend::CrosstermBackend, Terminal};
-// use tui::{backend::CrosstermBackend, Terminal};
+use tui::{backend::CrosstermBackend, Terminal};
 
 // use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
@@ -224,74 +222,6 @@ impl Zone for MiddleZone {
 
 use std::io::{stdout, Write};
 
-pub fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, data: &mut Data::Data) {
-    let chunks = Layout::default()
-        .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
-        .split(f.size());
-    let tabs = Tabs::default()
-        .block(Block::default().borders(Borders::ALL).title("title"))
-        .titles(&data.tabs.titles)
-        .style(Style::default().fg(Color::Green))
-        .highlight_style(Style::default().fg(Color::Yellow))
-        .select(data.tabs.index);
-    f.render_widget(tabs, chunks[0]);
-    match data.tabs.index {
-        0 => draw_first_tab(f, data, chunks[1]),
-        _ => {}
-    };
-}
-
-fn draw_first_tab<B>(f: &mut Frame<B>, data: &mut Data::Data, area: Rect)
-where
-    B: tui::backend::Backend,
-{
-    let chunks = Layout::default()
-        .constraints(
-            [
-                Constraint::Length(7),
-                Constraint::Min(7),
-                Constraint::Length(7),
-            ]
-            .as_ref(),
-        )
-        .split(area);
-    draw_charts(f, data, chunks[1]);
-}
-
-fn draw_charts<B>(f: &mut Frame<B>, data: &mut Data::Data, area: Rect)
-where
-    B: tui::backend::Backend,
-{
-    let constraints = if data.show_chart {
-        vec![Constraint::Percentage(50), Constraint::Percentage(50)]
-    } else {
-        vec![Constraint::Percentage(100)]
-    };
-    let chunks = Layout::default()
-        .constraints(constraints)
-        .direction(Direction::Horizontal)
-        .split(area);
-    {
-        let chunks = Layout::default()
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-            .split(chunks[0]);
-        {
-            let chunks = Layout::default()
-                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
-                .direction(Direction::Horizontal)
-                .split(chunks[0]);
-
-            // Draw tasks
-            let tasks = data.tasks.items.iter().map(|i| Text::raw(*i));
-            let tasks = List::new(tasks)
-                .block(Block::default().borders(Borders::ALL).title("List"))
-                .highlight_style(Style::default().fg(Color::Yellow).modifier(Modifier::BOLD))
-                .highlight_symbol("> ");
-            f.render_stateful_widget(tasks, chunks[0], &mut data.tasks.state);
-        }
-    }
-}
-
 use notify::{watcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::mpsc::channel;
@@ -304,6 +234,7 @@ pub trait DataSource<T> {
 }
 
 // THis will represent a Directory for us
+
 struct Directory {
     path: PathBuf,
     watcher: notify::INotifyWatcher,
@@ -317,7 +248,6 @@ impl Directory {
     fn new(path: PathBuf) -> Directory {
         let (sender, receiver) = channel();
         let mut watcher = watcher(sender, Duration::from_secs(1)).unwrap();
-        let walk_dir = WalkDir::new(path.clone());
 
         // Watching directory.
         watcher
@@ -325,12 +255,14 @@ impl Directory {
             .unwrap();
 
         Directory {
-            path,
+            path: path.clone(),
             watcher,
-            walk_dir,
+            walk_dir: WalkDir::new(path.clone()),
             receiver,
         }
     }
+
+    // fn listen(self) {}
 
     fn listen(mut self) {
         // Listening to changes.
@@ -345,20 +277,94 @@ impl Directory {
             println!("thread loopng");
         });
     }
+
+    fn getLineIterator(self) -> walkdir::IntoIter {
+        let iter = self.walk_dir.into_iter();
+        iter
+    }
+}
+
+struct DisplayData {
+    directory: Directory,
+}
+
+impl DisplayData {
+    fn new(directory: Directory) -> DisplayData {
+        return DisplayData { directory };
+    }
+}
+
+fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, display_data: &mut DisplayData) {
+    let constraints = vec![Constraint::Percentage(100)];
+    let chunks = Layout::default().constraints(constraints).split(f.size());
+
+    let directory = &display_data.directory;
+    let path = directory.path.clone();
+    let walk_dir = WalkDir::new(path);
+
+    let lines = walk_dir
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .map(|ref e| tui::widgets::Text::raw(String::from(e.file_name().to_string_lossy())))
+        // .map(|ref e| tui::widgets::Text::raw(e.file_name().to_string_lossy()))
+        // .map(|ref e| e.path().to_owned().to_string_lossy())
+        // .collect::<Vec<tui::widgets::Text>>();
+;
+    // let new_lines = WalkDir::new(working_directory)
+    //     .into_iter()
+    //     .filter_map(Result::ok)
+    //     .map(|e| String::from(e.file_name().to_string_lossy()))
+    //     .collect::<Vec<String>>();
+
+    // .map(|e| tui::widgets::Text::raw(e.file_name().to_string_lossy()));
+
+    let tasks = List::new(lines);
+    f.render_widget(tasks, chunks[0]);
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Start
     let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
     directory.listen();
-    // thread::spawn(move || loop {
-    //     match directory.receiver.recv() {
-    //         Ok(event) => println!("{:?}", event),
-    //         Err(e) => println!("watch error: {:?}", e),
-    //     };
-    //     println!("thread loopng");
-    // });
+    let mut display_data = DisplayData::new(directory);
 
-    loop {}
+    enable_raw_mode()?; // crossterm terminal setup
+    let mut stdout = stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?; // crossterm event setup
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    terminal.hide_cursor()?;
+
+    let config = get_config();
+    // Setup input handling
+    let (tx, rx) = mpsc::channel();
+    let tick_rate_u64 = config.tick_rate.parse().unwrap();
+    let tick_rate = Duration::from_millis(tick_rate_u64);
+
+    // Heartbeat for the  display. Will send each second, of each key
+    thread::spawn(move || {
+        let mut last_tick = Instant::now();
+        loop {
+            let time_before_tick = tick_rate - last_tick.elapsed();
+
+            if event::poll(time_before_tick).unwrap() {
+                if let CEvent::Key(key) = event::read().unwrap() {
+                    tx.send(Event::Input(key)).unwrap();
+                }
+            }
+
+            if time_before_tick <= Duration::new(0, 0) {
+                tx.send(Event::Tick).unwrap();
+                last_tick = Instant::now();
+            }
+        }
+    });
+
+    terminal.clear()?;
+
+    loop {
+        terminal.draw(|mut f| draw(&mut f, &mut display_data))?;
+    }
 
     Ok(())
 }

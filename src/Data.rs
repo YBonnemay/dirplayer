@@ -73,6 +73,7 @@ impl<'a> Data<'a> {
             show_chart: true,
         }
     }
+
     pub fn on_up(&mut self) {}
     pub fn on_down(&mut self) {}
     pub fn on_right(&mut self) {}
