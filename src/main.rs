@@ -26,7 +26,6 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::{
     error::Error,
-    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -145,23 +144,23 @@ impl MiddleZone {
         }
     }
 
-    fn refresh_start(&self) {
-        let lines = self.lines.clone();
-        thread::spawn(move || loop {
-            thread::sleep(time::Duration::from_millis(1000));
-            let config = get_config();
-            let working_directory = config.working_directory.clone();
+    // fn refresh_start(&self) {
+    //     let lines = self.lines.clone();
+    //     thread::spawn(move || loop {
+    //         thread::sleep(time::Duration::from_millis(1000));
+    //         let config = get_config();
+    //         let working_directory = config.working_directory.clone();
 
-            let new_lines = WalkDir::new(working_directory)
-                .into_iter()
-                .filter_map(Result::ok)
-                .map(|e| String::from(e.file_name().to_string_lossy()))
-                .collect::<Vec<String>>();
+    //         let new_lines = WalkDir::new(working_directory)
+    //             .into_iter()
+    //             .filter_map(Result::ok)
+    //             .map(|e| String::from(e.file_name().to_string_lossy()))
+    //             .collect::<Vec<String>>();
 
-            let mut writable_lines = lines.write().unwrap();
-            *writable_lines = new_lines;
-        });
-    }
+    //         let mut writable_lines = lines.write().unwrap();
+    //         *writable_lines = new_lines;
+    //     });
+    // }
 }
 
 impl Zone for MiddleZone {
@@ -222,9 +221,11 @@ impl Zone for MiddleZone {
 
 use std::io::{stdout, Write};
 
+use crossbeam_channel::unbounded;
 use notify::{watcher, RecursiveMode, Watcher};
+use std::path::Path;
 use std::path::PathBuf;
-use std::sync::mpsc::channel;
+// use std::sync::mpsc::channel;
 
 // A DataSource represents data that will de displayed. A DirectoryDataSource is a watched directory
 // A Displayer
@@ -236,51 +237,78 @@ pub trait DataSource<T> {
 // THis will represent a Directory for us
 
 struct Directory {
-    path: PathBuf,
+    path: Arc<RwLock<PathBuf>>,
     watcher: notify::INotifyWatcher,
     walk_dir: WalkDir,
-    receiver: std::sync::mpsc::Receiver<notify::DebouncedEvent>,
-    // sender: std::sync::mpsc::Sender<notify::DebouncedEvent>,
-    // receiver: mpsc::Receiver<notify::DebouncedEvent>,
+    sender: crossbeam_channel::Sender<std::result::Result<notify::Event, notify::Error>>,
+    receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
+    lines: Arc<RwLock<Vec<String>>>,
 }
 
 impl Directory {
-    fn new(path: PathBuf) -> Directory {
-        let (sender, receiver) = channel();
-        let mut watcher = watcher(sender, Duration::from_secs(1)).unwrap();
+    fn new(pathbuf: PathBuf) -> Directory {
+        let (sender, receiver) = unbounded();
+        // Automatically select the best implementation for your platform.
+        let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
 
+        let path = Arc::new(RwLock::new(pathbuf.clone()));
         // Watching directory.
         watcher
-            .watch(path.clone(), RecursiveMode::Recursive)
+            .watch(pathbuf.clone(), RecursiveMode::Recursive)
             .unwrap();
 
         Directory {
-            path: path.clone(),
+            path,
             watcher,
-            walk_dir: WalkDir::new(path.clone()),
+            walk_dir: WalkDir::new(pathbuf),
+            sender: sender,
             receiver,
+            lines: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
     // fn listen(self) {}
 
-    fn listen(mut self) {
+    fn refresh_lines(&self) {
+        let lines = self.lines.clone();
+        let path = self.path.clone();
+
+        let path_read = &*(path.read().unwrap());
+        // let new_path = &*path_read;
+        let new_lines = WalkDir::new(path_read)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| String::from(e.file_name().to_string_lossy()))
+            .collect::<Vec<String>>();
+
+        let mut writable_lines = lines.write().unwrap();
+        *writable_lines = new_lines;
+    }
+
+    fn listen(&self) {
         // Listening to changes.
+        let receiver = self.receiver.clone();
+        let lines = self.lines.clone();
+        let path = self.path.clone();
+
         thread::spawn(move || loop {
-            match self.receiver.recv() {
+            match receiver.recv() {
                 Ok(event) => {
-                    self.walk_dir = WalkDir::new(self.path.clone());
-                    println!("{:?}", event);
+                    let path_read = &*(path.read().unwrap());
+                    let new_lines = WalkDir::new(path_read)
+                        .into_iter()
+                        .filter_map(|e| e.ok())
+                        .map(|e| String::from(e.file_name().to_string_lossy()))
+                        .collect::<Vec<String>>();
+                    let mut writable_lines = lines.write().unwrap();
+                    *writable_lines = new_lines;
+
+                    // println!("{:?}", event);
                 }
                 Err(e) => println!("watch error: {:?}", e),
             };
-            println!("thread loopng");
+            // println!("thread loopng");
         });
-    }
-
-    fn getLineIterator(self) -> walkdir::IntoIter {
-        let iter = self.walk_dir.into_iter();
-        iter
     }
 }
 
@@ -298,18 +326,21 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, display_data: &mut DisplayDa
     let constraints = vec![Constraint::Percentage(100)];
     let chunks = Layout::default().constraints(constraints).split(f.size());
 
-    let directory = &display_data.directory;
-    let path = directory.path.clone();
-    let walk_dir = WalkDir::new(path);
+    let displayable_lines = display_data.directory.lines.clone();
+    let displayable_lines = displayable_lines.read().unwrap().to_vec();
 
-    let lines = walk_dir
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .map(|ref e| tui::widgets::Text::raw(String::from(e.file_name().to_string_lossy())))
-        // .map(|ref e| tui::widgets::Text::raw(e.file_name().to_string_lossy()))
-        // .map(|ref e| e.path().to_owned().to_string_lossy())
-        // .collect::<Vec<tui::widgets::Text>>();
-;
+    // println!("{:#?}", displayable_lines);
+
+    let text_lines = displayable_lines.iter().map(|e| Text::raw(e));
+    let text_lines = List::new(text_lines);
+
+    // let displayable_lines = display_data.directory.lines.read().unwrap();
+    // let text_lines = displayable_lines.iter().map(|e| Text::raw(e));
+    // let text_lines = List::new(text_lines);
+
+    f.render_widget(text_lines, chunks[0])
+    // lines.iter().map(|e| Text::raw(e)).collect()
+
     // let new_lines = WalkDir::new(working_directory)
     //     .into_iter()
     //     .filter_map(Result::ok)
@@ -318,13 +349,14 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, display_data: &mut DisplayDa
 
     // .map(|e| tui::widgets::Text::raw(e.file_name().to_string_lossy()));
 
-    let tasks = List::new(lines);
-    f.render_widget(tasks, chunks[0]);
+    // let tasks = List::new(lines);
+    // f.render_widget(tasks, chunks[0]);
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
-    let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
+    let mut directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
+    directory.refresh_lines();
     directory.listen();
     let mut display_data = DisplayData::new(directory);
 
@@ -336,8 +368,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     terminal.hide_cursor()?;
 
     let config = get_config();
+
     // Setup input handling
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = unbounded();
     let tick_rate_u64 = config.tick_rate.parse().unwrap();
     let tick_rate = Duration::from_millis(tick_rate_u64);
 
@@ -353,7 +386,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
 
-            if time_before_tick <= Duration::new(0, 0) {
+            if time_before_tick > Duration::new(0, 0) {
                 tx.send(Event::Tick).unwrap();
                 last_tick = Instant::now();
             }
@@ -364,6 +397,32 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         terminal.draw(|mut f| draw(&mut f, &mut display_data))?;
+        match rx.recv()? {
+            Event::Input(event) => match event.code {
+                KeyCode::Char('q') => {
+                    disable_raw_mode()?;
+                    execute!(
+                        terminal.backend_mut(),
+                        LeaveAlternateScreen,
+                        DisableMouseCapture
+                    )?;
+                    terminal.show_cursor()?;
+                    break;
+                }
+                // KeyCode::Char(c) => display_data.on_key(c),
+                // KeyCode::Left => display_data.on_left(),
+                // KeyCode::Up => display_data.on_up(),
+                // KeyCode::Right => display_data.on_right(),
+                // KeyCode::Down => display_data.on_down(),
+                _ => {}
+            },
+            Event::Tick => {
+                // data.on_tick();
+            }
+        }
+        // if data.should_quit {
+        //     break;
+        // }
     }
 
     Ok(())
