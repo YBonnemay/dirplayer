@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+use tui::layout::Constraint;
 use walkdir::WalkDir;
+use zone::Zone;
 
 // This represents an updated view on a directory.
 // It makes the recursive contents of a directory available and updated.
@@ -73,5 +75,15 @@ impl Directory {
                 Err(e) => println!("watch error: {:?}", e),
             };
         });
+    }
+}
+
+impl Zone for Directory {
+    fn get_displayable(&self) -> Vec<String> {
+        self.lines.clone().read().unwrap().to_vec()
+    }
+
+    fn get_constraints(&self) -> Constraint {
+        Constraint::Length(1)
     }
 }

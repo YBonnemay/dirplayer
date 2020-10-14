@@ -27,8 +27,9 @@ use std::time::{Duration, Instant};
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
 use tui::widgets::{Block, Borders, List, Tabs, Text};
-use tui::Frame;
-use tui::{backend::CrosstermBackend, Terminal};
+use tui::{backend::CrosstermBackend, buffer::Buffer, Terminal};
+use tui::{widgets::Widget, Frame};
+use walkdir::{DirEntry, WalkDir};
 
 enum Event<I> {
     Input(I),
@@ -55,41 +56,126 @@ use std::path::PathBuf;
 mod directory;
 use directory::Directory;
 
-pub trait DataSource<T> {
-    fn get_lines(&self) -> Vec<T>;
+mod zone;
+use zone::Zone;
+
+struct Label<'a> {
+    text: &'a str,
 }
 
-struct DisplayData {
-    directory: Directory,
-}
-
-impl DisplayData {
-    fn new(directory: Directory) -> DisplayData {
-        return DisplayData { directory };
+impl<'a> Default for Label<'a> {
+    fn default() -> Label<'a> {
+        Label { text: "" }
     }
 }
 
-fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, display_data: &mut DisplayData) {
-    let constraints = vec![Constraint::Percentage(100)];
+impl<'a> Widget for Label<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        buf.set_string(area.left(), area.top(), self.text, Style::default());
+    }
+}
+
+impl<'a> Label<'a> {
+    fn text(mut self, text: &'a str) -> Label<'a> {
+        self.text = text;
+        self
+    }
+}
+
+pub struct DirectoryPath {
+    pub path: PathBuf,
+}
+
+impl DirectoryPath {
+    pub fn new(path: PathBuf) -> DirectoryPath {
+        return DirectoryPath { path };
+    }
+
+    pub fn set_path(&mut self, path: String) {
+        self.path = PathBuf::from(path);
+    }
+
+    // pub fn get_path_string(self) -> &String {
+    //     String::from(self.path.to_string_lossy())
+    // }
+
+    pub fn get_path_completions(self) -> std::vec::Vec<std::string::String> {
+        WalkDir::new(self.path)
+            .into_iter()
+            .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
+            .map(|e| String::from(e.unwrap().file_name().to_string_lossy()))
+            .collect::<Vec<String>>()
+    }
+}
+
+impl Zone for DirectoryPath {
+    fn get_displayable(&self) -> Vec<String> {
+        vec![self.path.clone().to_string_lossy().to_string()]
+    }
+
+    fn get_constraints(&self) -> Constraint {
+        Constraint::Length(1)
+    }
+}
+
+struct Displayer {
+    // pub directory_path: DirectoryPath,
+    // pub directory: Directory,
+    pub zones: Vec<Box<dyn Zone>>,
+}
+
+impl Displayer {
+    pub fn new() -> Displayer {
+        return Displayer { zones: Vec::new() };
+    }
+
+    pub fn push_zone(&mut self, zone: Box<dyn Zone>) {
+        self.zones.push(zone);
+    }
+}
+
+fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &mut Displayer) {
+    // let chunks = Layout::default().constraints(constraints).split(f.size());
+    let zones = &displayer.zones;
+
+    let constraints = zones
+        .iter()
+        .map(|e| e.get_constraints())
+        .collect::<Vec<Constraint>>();
+
     let chunks = Layout::default().constraints(constraints).split(f.size());
 
-    let displayable_lines = display_data.directory.lines.clone();
-    let displayable_lines = displayable_lines.read().unwrap().to_vec();
+    for (idx, zone) in zones.iter().enumerate() {
+        let displayable = zone.get_displayable();
+        let displayable = displayable.iter().map(|e| Text::raw(e));
+        let displayable = List::new(displayable);
+        f.render_widget(displayable, chunks[idx]);
+    }
 
-    // println!("{:#?}", displayable_lines);
+    // let displayable_path = &displayer.directory_path.path.to_string_lossy();
+    // let displayable_path = Label::default().text(displayable_path);
 
-    let text_lines = displayable_lines.iter().map(|e| Text::raw(e));
-    let text_lines = List::new(text_lines);
+    // let displayable_lines = displayer.directory.lines.clone();
 
-    f.render_widget(text_lines, chunks[0])
+    // let displayable_lines = displayable_lines.read().unwrap().to_vec();
+    // let text_lines = displayable_lines.iter().map(|e| Text::raw(e));
+    // let text_lines = List::new(text_lines);
+
+    // f.render_widget(displayable_path, chunks[0]);
+    // f.render_widget(text_lines, chunks[1]);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
-    let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
+    let starting_directory = "/home/bonnemay/downloads/aa_inbox";
+    let directory_path = DirectoryPath::new(PathBuf::from(&starting_directory));
+    let directory = Directory::new(PathBuf::from(&starting_directory));
+    // let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
     directory.refresh_lines();
     directory.listen();
-    let mut display_data = DisplayData::new(directory);
+    let mut displayer = Displayer::new();
+    displayer.push_zone(Box::new(directory_path));
+    displayer.push_zone(Box::new(directory));
 
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();
@@ -127,7 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.clear()?;
 
     loop {
-        terminal.draw(|mut f| draw(&mut f, &mut display_data))?;
+        terminal.draw(|mut f| draw(&mut f, &mut displayer))?;
         match rx.recv()? {
             Event::Input(event) => match event.code {
                 KeyCode::Char('q') => {
@@ -140,11 +226,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     terminal.show_cursor()?;
                     break;
                 }
-                // KeyCode::Char(c) => display_data.on_key(c),
-                // KeyCode::Left => display_data.on_left(),
-                // KeyCode::Up => display_data.on_up(),
-                // KeyCode::Right => display_data.on_right(),
-                // KeyCode::Down => display_data.on_down(),
+                // KeyCode::Char(c) => displayer.on_key(c),
+                // KeyCode::Left => displayer.on_left(),
+                // KeyCode::Up => displayer.on_up(),
+                // KeyCode::Right => displayer.on_right(),
+                // KeyCode::Down => displayer.on_down(),
                 _ => {}
             },
             Event::Tick => {
