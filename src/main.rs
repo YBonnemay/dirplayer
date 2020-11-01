@@ -18,7 +18,9 @@ extern crate serde_derive;
 
 use crossbeam_channel::unbounded;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -84,11 +86,13 @@ impl<'a> Label<'a> {
 
 pub struct DirectoryPath {
     pub path: PathBuf,
+    pub completions: String,
 }
 
 impl DirectoryPath {
     pub fn new(path: PathBuf) -> DirectoryPath {
-        return DirectoryPath { path };
+        let completions = String::from(" dummy ");
+        return DirectoryPath { path, completions };
     }
 
     pub fn set_path(&mut self, path: String) {
@@ -99,8 +103,8 @@ impl DirectoryPath {
     //     String::from(self.path.to_string_lossy())
     // }
 
-    pub fn get_path_completions(self) -> std::vec::Vec<std::string::String> {
-        WalkDir::new(self.path)
+    pub fn get_path_completions(&self) -> std::vec::Vec<std::string::String> {
+        WalkDir::new(&self.path)
             .into_iter()
             .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
             .map(|e| String::from(e.unwrap().file_name().to_string_lossy()))
@@ -110,27 +114,56 @@ impl DirectoryPath {
 
 impl Zone for DirectoryPath {
     fn get_displayable(&self) -> Vec<String> {
-        vec![self.path.clone().to_string_lossy().to_string()]
+        vec![format!(
+            "{} | {}",
+            self.path.clone().to_string_lossy().to_string(),
+            self.completions
+        )]
     }
 
     fn get_constraints(&self) -> Constraint {
         Constraint::Length(1)
+    }
+
+    fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
+        match key_code {
+            KeyCode::Tab => {
+                let completions = self.get_path_completions().join(" | ");
+                self.completions = completions
+            }
+            _ => println!("unknown key"),
+        }
     }
 }
 
 struct Displayer {
     // pub directory_path: DirectoryPath,
     // pub directory: Directory,
+    zone_index: i8,
+    zone_number: i8,
     pub zones: Vec<Box<dyn Zone>>,
 }
 
 impl Displayer {
     pub fn new() -> Displayer {
-        return Displayer { zones: Vec::new() };
+        return Displayer {
+            zones: Vec::new(),
+            zone_index: 0,
+            zone_number: 0,
+        };
     }
 
     pub fn push_zone(&mut self, zone: Box<dyn Zone>) {
         self.zones.push(zone);
+        self.zone_number = self.zone_number + 1;
+    }
+
+    pub fn move_zone(&mut self, zone_index_increment: i8) {
+        self.zone_index = (self.zone_index + zone_index_increment).rem_euclid(self.zone_number);
+    }
+
+    pub fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
+        self.zones[self.zone_index as usize].process_event(key_code, key_modifiers);
     }
 }
 
@@ -226,12 +259,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     terminal.show_cursor()?;
                     break;
                 }
-                // KeyCode::Char(c) => displayer.on_key(c),
-                // KeyCode::Left => displayer.on_left(),
-                // KeyCode::Up => displayer.on_up(),
-                // KeyCode::Right => displayer.on_right(),
-                // KeyCode::Down => displayer.on_down(),
-                _ => {}
+
+                // Displayyer wide
+                KeyCode::Up => {
+                    if event.modifiers == KeyModifiers::CONTROL {
+                        displayer.move_zone(-1);
+                    }
+                }
+
+                KeyCode::Down => {
+                    if event.modifiers == KeyModifiers::CONTROL {
+                        displayer.move_zone(1);
+                    }
+                }
+
+                // Zone wide
+                _ => displayer.process_event(event.code, event.modifiers),
             },
             Event::Tick => {
                 // data.on_tick();

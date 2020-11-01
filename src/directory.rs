@@ -1,4 +1,5 @@
 use crossbeam_channel::unbounded;
+use crossterm::event::{KeyCode, KeyModifiers};
 use notify::{watcher, RecursiveMode, Watcher};
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -86,4 +87,6 @@ impl Zone for Directory {
     fn get_constraints(&self) -> Constraint {
         Constraint::Length(1)
     }
+
+    fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {}
 }
