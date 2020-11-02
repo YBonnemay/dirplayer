@@ -15,3 +15,4 @@ serde_derive = "*"
 serde_json = "*"
 tui =  { version = "0.9", default-features = false, features = ['crossterm'] }
 walkdir = "2"
+fuzzy-matcher = "*"

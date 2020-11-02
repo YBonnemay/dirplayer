@@ -1,6 +1,7 @@
 extern crate argh;
 extern crate crossbeam_channel;
 extern crate crossterm;
+extern crate fuzzy_matcher;
 extern crate notify;
 extern crate serde;
 extern crate serde_json;
@@ -24,6 +25,8 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use std::thread;
 use std::time::{Duration, Instant};
 use tui::layout::{Constraint, Direction, Layout, Rect};
@@ -84,40 +87,58 @@ impl<'a> Label<'a> {
     }
 }
 
+pub enum DirectoryPathStates {
+    Default,
+    Tabbing,
+}
+
 pub struct DirectoryPath {
+    pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
     pub path: PathBuf,
-    pub completions: String,
+    pub completions: Vec<String>,
+    pub state: DirectoryPathStates,
+    pub filter: String,
+    pub rotate_idx: i32,
+}
+
+pub fn get_path_completions(path: &PathBuf) -> Vec<String> {
+    WalkDir::new(path)
+        .into_iter()
+        .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
+        .map(|e| String::from(e.unwrap().file_name().to_string_lossy()))
+        .collect::<Vec<String>>()
 }
 
 impl DirectoryPath {
     pub fn new(path: PathBuf) -> DirectoryPath {
-        let completions = String::from(" dummy ");
-        return DirectoryPath { path, completions };
-    }
-
-    pub fn set_path(&mut self, path: String) {
-        self.path = PathBuf::from(path);
-    }
-
-    // pub fn get_path_string(self) -> &String {
-    //     String::from(self.path.to_string_lossy())
-    // }
-
-    pub fn get_path_completions(&self) -> std::vec::Vec<std::string::String> {
-        WalkDir::new(&self.path)
-            .into_iter()
-            .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
-            .map(|e| String::from(e.unwrap().file_name().to_string_lossy()))
-            .collect::<Vec<String>>()
+        let completions = get_path_completions(&path);
+        DirectoryPath {
+            path,
+            completions,
+            state: DirectoryPathStates::Default,
+            filter: String::from(""),
+            matcher: SkimMatcherV2::default(),
+            rotate_idx: 0,
+        }
     }
 }
 
 impl Zone for DirectoryPath {
     fn get_displayable(&self) -> Vec<String> {
+        let mut filtered_completions = self
+            .completions
+            .iter()
+            .cloned()
+            .filter(|e| self.matcher.fuzzy_match(e, &self.filter).is_some())
+            .collect::<Vec<String>>();
+
+        let rotate = (self.rotate_idx).rem_euclid(filtered_completions.len() as i32);
+        filtered_completions.rotate_right(rotate as usize);
+
         vec![format!(
             "{} | {}",
             self.path.clone().to_string_lossy().to_string(),
-            self.completions
+            filtered_completions.join(" | ")
         )]
     }
 
@@ -127,11 +148,17 @@ impl Zone for DirectoryPath {
 
     fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
         match key_code {
+            // KeyCode::Tab => match self.state {
+            //     DirectoryPathStates::Default => {}
+            //     _ => println!("unknown state"),
+            // },
             KeyCode::Tab => {
-                let completions = self.get_path_completions().join(" | ");
-                self.completions = completions
+                self.rotate_idx = self.rotate_idx + 1;
             }
-            _ => println!("unknown key"),
+            KeyCode::Char(c) => {
+                self.filter = format!("{}{}", self.filter, c);
+            }
+            _ => {}
         }
     }
 }
@@ -184,23 +211,12 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &mut Displayer) {
         let displayable = List::new(displayable);
         f.render_widget(displayable, chunks[idx]);
     }
-
-    // let displayable_path = &displayer.directory_path.path.to_string_lossy();
-    // let displayable_path = Label::default().text(displayable_path);
-
-    // let displayable_lines = displayer.directory.lines.clone();
-
-    // let displayable_lines = displayable_lines.read().unwrap().to_vec();
-    // let text_lines = displayable_lines.iter().map(|e| Text::raw(e));
-    // let text_lines = List::new(text_lines);
-
-    // f.render_widget(displayable_path, chunks[0]);
-    // f.render_widget(text_lines, chunks[1]);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
     let starting_directory = "/home/bonnemay/downloads/aa_inbox";
+    // let starting_directory = "/home/bonnemay/tests/src/src";
     let directory_path = DirectoryPath::new(PathBuf::from(&starting_directory));
     let directory = Directory::new(PathBuf::from(&starting_directory));
     // let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
