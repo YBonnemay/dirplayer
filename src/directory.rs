@@ -6,6 +6,8 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 use tui::layout::Constraint;
+use tui::text::{Span, Spans, Text};
+use tui::widgets::Paragraph;
 use walkdir::WalkDir;
 use zone::Zone;
 
@@ -80,9 +82,20 @@ impl Directory {
 }
 
 impl Zone for Directory {
-    fn get_displayable(&self) -> Vec<String> {
-        self.lines.clone().read().unwrap().to_vec()
+    fn get_displayable(&self) -> Paragraph {
+        Paragraph::new(Span::raw(" TODO "))
     }
+
+    // fn get_displayable(&self) -> Paragraph {
+    //     self.lines
+    //         .clone()
+    //         .read()
+    //         .unwrap()
+    //         .to_vec()
+    //         .into_iter()
+    //         .map(|e| Text::from(e))
+    //         .collect::<Vec<Text>>()
+    // }
 
     fn get_constraints(&self) -> Constraint {
         Constraint::Length(1)

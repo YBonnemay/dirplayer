@@ -27,11 +27,13 @@ use crossterm::{
 };
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use std::collections::HashSet;
 use std::thread;
 use std::time::{Duration, Instant};
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
-use tui::widgets::{Block, Borders, List, Tabs, Text};
+use tui::text::{Span, Spans, Text};
+use tui::widgets::{Block, Borders, List, ListItem, Paragraph, Tabs};
 use tui::{backend::CrosstermBackend, buffer::Buffer, Terminal};
 use tui::{widgets::Widget, Frame};
 use walkdir::{DirEntry, WalkDir};
@@ -123,23 +125,113 @@ impl DirectoryPath {
     }
 }
 
+fn styleWord(raw_string: String, indices: Vec<i32>, style: Style) {
+    let apply_style = false;
+    let string_length = raw_string.len();
+
+    // indices.map(|e| )
+}
+
+pub enum StyleMode {
+    Bold,
+    Raw,
+}
+
+fn get_style(isBold: bool) -> Style {
+    if isBold {
+        return Style::default().add_modifier(Modifier::BOLD);
+    }
+    Style::default()
+}
+
 impl Zone for DirectoryPath {
-    fn get_displayable(&self) -> Vec<String> {
-        let mut filtered_completions = self
-            .completions
-            .iter()
-            .cloned()
-            .filter(|e| self.matcher.fuzzy_match(e, &self.filter).is_some())
-            .collect::<Vec<String>>();
+    // fn get_displayable(&self) -> Vec<String> {
+    //     let mut filtered_completions = self
+    //         .completions
+    //         .iter()
+    //         .cloned()
+    //         .filter(|e| self.matcher.fuzzy_match(e, &self.filter).is_some())
+    //         .collect::<Vec<String>>();
 
-        let rotate = (self.rotate_idx).rem_euclid(filtered_completions.len() as i32);
-        filtered_completions.rotate_right(rotate as usize);
+    //     let rotate = (self.rotate_idx).rem_euclid(filtered_completions.len() as i32);
+    //     filtered_completions.rotate_right(rotate as usize);
 
-        vec![format!(
-            "{} | {}",
-            self.path.clone().to_string_lossy().to_string(),
-            filtered_completions.join(" | ")
-        )]
+    //     vec![format!(
+    //         "{} | {}",
+    //         self.path.clone().to_string_lossy().to_string(),
+    //         filtered_completions.join(" | ")
+    //     )]
+    // }
+
+    // ~/github/tui-rs/examples/demo/ui.rs
+    // let text = [
+    //     Text::styled("the", Style::default().fg(Color::Green)),
+    // ];
+
+    // fn get_displayable(&self) -> Vec<Text> {
+    fn get_displayable(&self) -> Paragraph {
+        let texts: Vec<Span> = vec![];
+
+        let mut filtered_completions =
+            self.completions.iter().cloned().fold(texts, |mut acc, e| {
+                // acc.push(Span::raw(e));
+                // acc.push(Span::raw(" | "));
+                // return acc;
+
+                if self.filter.len() == 0 {
+                    acc.push(Span::raw(e));
+                    acc.push(Span::raw(" | "));
+                    return acc;
+                }
+
+                match self.matcher.fuzzy_indices(&e, &self.filter) {
+                    Some((score, indices)) => {
+                        if score > 0 && indices.len() > 0 {
+                            // let mut indice = indices.pop().unwrap();
+                            // let mut is_bold = false;
+
+                            // no way to use style inside spans
+                            // for (i, c) in e.chars().enumerate() {
+                            //     if i == indice {
+                            //         is_bold = !is_bold;
+                            //         if indices.len() > 0 {
+                            //             indice = indices.pop().unwrap();
+                            //         }
+                            //     };
+
+                            //     acc.push(Span::styled(String::from(c), get_style(is_bold)));
+                            // }
+
+                            acc.push(Span::raw(e));
+                            acc.push(Span::raw(" | "));
+                        }
+                    }
+                    None => {}
+                }
+                acc
+            });
+
+        //Switch to build 1 string, then a 1 element list. Rather that a vec ?
+
+        if filtered_completions.len() > 0 {
+            // println!("\nfiltered_completions{:#?}", self.rotate_idx);
+            let rotate = (self.rotate_idx * 2).rem_euclid(filtered_completions.len() as i32);
+            filtered_completions.rotate_right(rotate as usize);
+        }
+
+        let mut displayables = vec![
+            Span::raw(self.path.clone().to_string_lossy().to_string()),
+            Span::raw(" | "),
+        ];
+        displayables.append(&mut filtered_completions);
+
+        Paragraph::new(Spans::from(displayables))
+
+        // vec![format!(
+        //     "{} | {}",
+        //     self.path.clone().to_string_lossy().to_string(),
+        //     filtered_completions.join(" | ")
+        // )]
     }
 
     fn get_constraints(&self) -> Constraint {
@@ -207,16 +299,29 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &mut Displayer) {
 
     for (idx, zone) in zones.iter().enumerate() {
         let displayable = zone.get_displayable();
-        let displayable = displayable.iter().map(|e| Text::raw(e));
-        let displayable = List::new(displayable);
+        // let displayable = List::new(displayable);
+
+        // let displayable = displayable
+        //     .into_iter()
+        //     .map(|e| ListItem::new(e))
+        //     .collect::<Vec<ListItem>>();
+
+        // let displayable = vec![String::from(""), String::from("")]
+        //     .into_iter()
+        //     .map(|e| ListItem::new(Text::raw(e)))
+        //     .collect::<Vec<ListItem>>();
+        // let displayable = List::new(displayable);
+
+        // println!("displayable{:#?}", displayable.width());
+
         f.render_widget(displayable, chunks[idx]);
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
-    let starting_directory = "/home/bonnemay/downloads/aa_inbox";
-    // let starting_directory = "/home/bonnemay/tests/src/src";
+    // let starting_directory = "/home/bonnemay/downloads/aa_inbox";
+    let starting_directory = "/home/bonnemay/github/dirplayer";
     let directory_path = DirectoryPath::new(PathBuf::from(&starting_directory));
     let directory = Directory::new(PathBuf::from(&starting_directory));
     // let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
@@ -224,7 +329,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     directory.listen();
     let mut displayer = Displayer::new();
     displayer.push_zone(Box::new(directory_path));
-    displayer.push_zone(Box::new(directory));
+    // displayer.push_zone(Box::new(directory));
 
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();

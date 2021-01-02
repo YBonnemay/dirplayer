@@ -13,6 +13,6 @@ rand = "*"
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "*"
 serde_json = "*"
-tui =  { version = "0.9", default-features = false, features = ['crossterm'] }
+tui =  { version = "0.13.0", default-features = false, features = ['crossterm'] }
 walkdir = "2"
 fuzzy-matcher = "*"
