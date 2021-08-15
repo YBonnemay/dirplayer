@@ -1,13 +1,14 @@
-extern crate argh;
-extern crate crossbeam_channel;
-extern crate crossterm;
-extern crate fuzzy_matcher;
-extern crate notify;
-extern crate serde;
-extern crate serde_json;
-extern crate tui;
-extern crate walkdir;
+// extern crate argh;
+// extern crate crossbeam_channel;
+// extern crate crossterm;
+// extern crate fuzzy_matcher;
+// extern crate notify;
+// extern crate serde;
+// extern crate serde_json;
+// extern crate tui;
+// extern crate walkdir;
 
+// https://blog.logrocket.com/rust-and-tui-building-a-command-line-interface-in-rust/
 #[macro_use]
 extern crate serde_derive;
 
@@ -17,6 +18,7 @@ extern crate serde_derive;
 // cd /home/bonnemay/github/dirplayer/ ; RUST_BACKTRACE=1 cargo run --verbose
 // println!("write_page{:#?}", lock.len());
 
+use crate::zone::Zone;
 use crossbeam_channel::unbounded;
 use crossterm::{
     event::{
@@ -27,16 +29,15 @@ use crossterm::{
 };
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
-use std::collections::HashSet;
 use std::thread;
 use std::time::{Duration, Instant};
-use tui::layout::{Constraint, Direction, Layout, Rect};
+use tui::layout::{Constraint, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans, Text};
-use tui::widgets::{Block, Borders, List, ListItem, Paragraph, Tabs};
+use tui::text::{Span, Spans};
+use tui::widgets::{List, Paragraph, Tabs};
 use tui::{backend::CrosstermBackend, buffer::Buffer, Terminal};
 use tui::{widgets::Widget, Frame};
-use walkdir::{DirEntry, WalkDir};
+use walkdir::WalkDir;
 
 enum Event<I> {
     Input(I),
@@ -64,7 +65,6 @@ mod directory;
 use directory::Directory;
 
 mod zone;
-use zone::Zone;
 
 struct Label<'a> {
     text: &'a str,
@@ -111,13 +111,14 @@ pub fn get_path_completions(path: &PathBuf) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-impl DirectoryPath {
+impl<'a> DirectoryPath {
     pub fn new(path: PathBuf) -> DirectoryPath {
         let completions = get_path_completions(&path);
         DirectoryPath {
             path,
             completions,
             state: DirectoryPathStates::Default,
+            // filter: String::from(""),
             filter: String::from(""),
             matcher: SkimMatcherV2::default(),
             rotate_idx: 0,
@@ -125,113 +126,66 @@ impl DirectoryPath {
     }
 }
 
-fn styleWord(raw_string: String, indices: Vec<i32>, style: Style) {
-    let apply_style = false;
-    let string_length = raw_string.len();
-
-    // indices.map(|e| )
-}
-
 pub enum StyleMode {
     Bold,
     Raw,
 }
 
-fn get_style(isBold: bool) -> Style {
-    if isBold {
+fn get_style(is_bold: bool) -> Style {
+    if is_bold {
         return Style::default().add_modifier(Modifier::BOLD);
     }
     Style::default()
 }
 
-impl Zone for DirectoryPath {
-    // fn get_displayable(&self) -> Vec<String> {
-    //     let mut filtered_completions = self
-    //         .completions
-    //         .iter()
-    //         .cloned()
-    //         .filter(|e| self.matcher.fuzzy_match(e, &self.filter).is_some())
-    //         .collect::<Vec<String>>();
+// fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Vec<Span<'static>> {
+fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Spans<'static> {
+    let bold_style = Style::default()
+        .fg(Color::Green)
+        .add_modifier(Modifier::BOLD);
+    let mut spans = vec![];
 
-    //     let rotate = (self.rotate_idx).rem_euclid(filtered_completions.len() as i32);
-    //     filtered_completions.rotate_right(rotate as usize);
+    for (i, c) in raw_string.chars().enumerate() {
+        if !indices.is_empty() && i == indices[0] {
+            indices.drain(0..1);
+            spans.push(Span::styled(String::from(c), bold_style));
+        } else {
+            spans.push(Span::raw(String::from(c)));
+        }
+    }
 
-    //     vec![format!(
-    //         "{} | {}",
-    //         self.path.clone().to_string_lossy().to_string(),
-    //         filtered_completions.join(" | ")
-    //     )]
-    // }
+    Spans::from(spans)
+}
 
-    // ~/github/tui-rs/examples/demo/ui.rs
-    // let text = [
-    //     Text::styled("the", Style::default().fg(Color::Green)),
-    // ];
+impl<'a> Zone for DirectoryPath {
+    fn get_displayable(&self) -> Tabs {
+        let texts: Vec<Spans> = vec![];
 
-    // fn get_displayable(&self) -> Vec<Text> {
-    fn get_displayable(&self) -> Paragraph {
-        let texts: Vec<Span> = vec![];
-
-        let mut filtered_completions =
+        let mut filtered_completions: Vec<Spans> =
             self.completions.iter().cloned().fold(texts, |mut acc, e| {
-                // acc.push(Span::raw(e));
-                // acc.push(Span::raw(" | "));
-                // return acc;
-
-                if self.filter.len() == 0 {
-                    acc.push(Span::raw(e));
-                    acc.push(Span::raw(" | "));
+                if self.filter.is_empty() {
+                    let spans = string_to_styled_text(e, vec![]);
+                    acc.push(spans);
                     return acc;
                 }
 
-                match self.matcher.fuzzy_indices(&e, &self.filter) {
-                    Some((score, indices)) => {
-                        if score > 0 && indices.len() > 0 {
-                            // let mut indice = indices.pop().unwrap();
-                            // let mut is_bold = false;
-
-                            // no way to use style inside spans
-                            // for (i, c) in e.chars().enumerate() {
-                            //     if i == indice {
-                            //         is_bold = !is_bold;
-                            //         if indices.len() > 0 {
-                            //             indice = indices.pop().unwrap();
-                            //         }
-                            //     };
-
-                            //     acc.push(Span::styled(String::from(c), get_style(is_bold)));
-                            // }
-
-                            acc.push(Span::raw(e));
-                            acc.push(Span::raw(" | "));
-                        }
+                if let Some((score, indices)) = self.matcher.fuzzy_indices(&e, &self.filter) {
+                    if score > 0 {
+                        let spans = string_to_styled_text(e, indices);
+                        acc.push(spans);
                     }
-                    None => {}
                 }
+
                 acc
             });
 
-        //Switch to build 1 string, then a 1 element list. Rather that a vec ?
-
-        if filtered_completions.len() > 0 {
+        if !filtered_completions.is_empty() {
             // println!("\nfiltered_completions{:#?}", self.rotate_idx);
             let rotate = (self.rotate_idx * 2).rem_euclid(filtered_completions.len() as i32);
             filtered_completions.rotate_right(rotate as usize);
         }
 
-        let mut displayables = vec![
-            Span::raw(self.path.clone().to_string_lossy().to_string()),
-            Span::raw(" | "),
-        ];
-        displayables.append(&mut filtered_completions);
-
-        Paragraph::new(Spans::from(displayables))
-
-        // vec![format!(
-        //     "{} | {}",
-        //     self.path.clone().to_string_lossy().to_string(),
-        //     filtered_completions.join(" | ")
-        // )]
+        Tabs::new(filtered_completions)
     }
 
     fn get_constraints(&self) -> Constraint {
@@ -245,7 +199,13 @@ impl Zone for DirectoryPath {
             //     _ => println!("unknown state"),
             // },
             KeyCode::Tab => {
-                self.rotate_idx = self.rotate_idx + 1;
+                self.rotate_idx += 1;
+            }
+            KeyCode::Backspace => {
+                let mut chars = self.filter.chars();
+                chars.next_back();
+                chars.next_back();
+                self.filter = chars.as_str().to_string();
             }
             KeyCode::Char(c) => {
                 self.filter = format!("{}{}", self.filter, c);
@@ -255,16 +215,16 @@ impl Zone for DirectoryPath {
     }
 }
 
-struct Displayer {
+struct Displayer<'a> {
     // pub directory_path: DirectoryPath,
     // pub directory: Directory,
     zone_index: i8,
     zone_number: i8,
-    pub zones: Vec<Box<dyn Zone>>,
+    pub zones: Vec<&'a mut dyn Zone>,
 }
 
-impl Displayer {
-    pub fn new() -> Displayer {
+impl<'a> Displayer<'a> {
+    pub fn new() -> Displayer<'a> {
         return Displayer {
             zones: Vec::new(),
             zone_index: 0,
@@ -272,7 +232,7 @@ impl Displayer {
         };
     }
 
-    pub fn push_zone(&mut self, zone: Box<dyn Zone>) {
+    pub fn push_zone(&mut self, zone: &'a mut dyn Zone) {
         self.zones.push(zone);
         self.zone_number = self.zone_number + 1;
     }
@@ -299,21 +259,6 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &mut Displayer) {
 
     for (idx, zone) in zones.iter().enumerate() {
         let displayable = zone.get_displayable();
-        // let displayable = List::new(displayable);
-
-        // let displayable = displayable
-        //     .into_iter()
-        //     .map(|e| ListItem::new(e))
-        //     .collect::<Vec<ListItem>>();
-
-        // let displayable = vec![String::from(""), String::from("")]
-        //     .into_iter()
-        //     .map(|e| ListItem::new(Text::raw(e)))
-        //     .collect::<Vec<ListItem>>();
-        // let displayable = List::new(displayable);
-
-        // println!("displayable{:#?}", displayable.width());
-
         f.render_widget(displayable, chunks[idx]);
     }
 }
@@ -322,13 +267,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
     // let starting_directory = "/home/bonnemay/downloads/aa_inbox";
     let starting_directory = "/home/bonnemay/github/dirplayer";
-    let directory_path = DirectoryPath::new(PathBuf::from(&starting_directory));
+    let mut directory_path = DirectoryPath::new(PathBuf::from(&starting_directory));
     let directory = Directory::new(PathBuf::from(&starting_directory));
     // let directory = Directory::new(PathBuf::from("/home/bonnemay/tests/src"));
     directory.refresh_lines();
     directory.listen();
     let mut displayer = Displayer::new();
-    displayer.push_zone(Box::new(directory_path));
+    displayer.push_zone(&mut directory_path);
     // displayer.push_zone(Box::new(directory));
 
     enable_raw_mode()?; // crossterm terminal setup
@@ -369,34 +314,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         terminal.draw(|mut f| draw(&mut f, &mut displayer))?;
         match rx.recv()? {
-            Event::Input(event) => match event.code {
-                KeyCode::Char('q') => {
-                    disable_raw_mode()?;
-                    execute!(
-                        terminal.backend_mut(),
-                        LeaveAlternateScreen,
-                        DisableMouseCapture
-                    )?;
-                    terminal.show_cursor()?;
-                    break;
-                }
-
-                // Displayyer wide
-                KeyCode::Up => {
-                    if event.modifiers == KeyModifiers::CONTROL {
-                        displayer.move_zone(-1);
+            Event::Input(event) => {
+                match event.code {
+                    KeyCode::Char('q') => {
+                        if event.modifiers == KeyModifiers::CONTROL {
+                            disable_raw_mode()?;
+                            execute!(
+                                terminal.backend_mut(),
+                                LeaveAlternateScreen,
+                                DisableMouseCapture
+                            )?;
+                            terminal.show_cursor()?;
+                            break;
+                        } else {
+                            displayer.process_event(event.code, event.modifiers)
+                        }
                     }
-                }
 
-                KeyCode::Down => {
-                    if event.modifiers == KeyModifiers::CONTROL {
-                        displayer.move_zone(1);
+                    // Displayyer wide
+                    KeyCode::Up => {
+                        if event.modifiers == KeyModifiers::CONTROL {
+                            displayer.move_zone(-1);
+                        }
                     }
-                }
 
-                // Zone wide
-                _ => displayer.process_event(event.code, event.modifiers),
-            },
+                    KeyCode::Down => {
+                        if event.modifiers == KeyModifiers::CONTROL {
+                            displayer.move_zone(1);
+                        }
+                    }
+
+                    // Zone wide
+                    _ => displayer.process_event(event.code, event.modifiers),
+                }
+            }
             Event::Tick => {
                 // data.on_tick();
             }

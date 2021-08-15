@@ -3,6 +3,7 @@ name = "dirplayer"
 version = "0.1.0"
 authors = ["Yann Bonnemay <y.bonnemay@gmail.com>"]
 
+edition = "2018"
 [dependencies]
 argh = "*"
 crossbeam = "*"

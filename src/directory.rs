@@ -1,3 +1,4 @@
+use crate::zone::Zone;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use notify::{watcher, RecursiveMode, Watcher};
@@ -6,10 +7,9 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
 use tui::layout::Constraint;
-use tui::text::{Span, Spans, Text};
-use tui::widgets::Paragraph;
+use tui::text::{Span, Spans};
+use tui::widgets::{Paragraph, Tabs};
 use walkdir::WalkDir;
-use zone::Zone;
 
 // This represents an updated view on a directory.
 // It makes the recursive contents of a directory available and updated.
@@ -82,8 +82,8 @@ impl Directory {
 }
 
 impl Zone for Directory {
-    fn get_displayable(&self) -> Paragraph {
-        Paragraph::new(Span::raw(" TODO "))
+    fn get_displayable(&self) -> Tabs {
+        Tabs::new(vec![Spans::from(Span::raw(" TODO "))])
     }
 
     // fn get_displayable(&self) -> Paragraph {
