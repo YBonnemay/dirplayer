@@ -31,10 +31,12 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::{collections::VecDeque, convert::TryInto};
+use std::{fs, io};
 use tui::layout::{Constraint, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{List, Paragraph, Tabs};
+use tui::text::{Span, Spans, Text};
+use tui::widgets::Tabs;
 use tui::{backend::CrosstermBackend, buffer::Buffer, Terminal};
 use tui::{widgets::Widget, Frame};
 use walkdir::WalkDir;
@@ -82,28 +84,22 @@ impl<'a> Widget for Label<'a> {
     }
 }
 
-impl<'a> Label<'a> {
-    fn text(mut self, text: &'a str) -> Label<'a> {
-        self.text = text;
-        self
-    }
-}
-
 pub enum DirectoryPathStates {
     Default,
     Tabbing,
 }
 
-pub struct DirectoryPath {
+pub struct DirectoryPath<'a> {
     pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
     pub path: PathBuf,
     pub completions: Vec<String>,
+    pub displayable_completions: VecDeque<Spans<'a>>,
     pub state: DirectoryPathStates,
     pub filter: String,
     pub rotate_idx: i32,
 }
 
-pub fn get_path_completions(path: &PathBuf) -> Vec<String> {
+pub fn get_path_completions_recursive(path: &PathBuf) -> Vec<String> {
     WalkDir::new(path)
         .into_iter()
         .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
@@ -111,31 +107,67 @@ pub fn get_path_completions(path: &PathBuf) -> Vec<String> {
         .collect::<Vec<String>>()
 }
 
-impl<'a> DirectoryPath {
-    pub fn new(path: PathBuf) -> DirectoryPath {
+pub fn get_path_completions(path: &PathBuf) -> Vec<String> {
+    fs::read_dir(path)
+        .unwrap()
+        .filter(|e| e.as_ref().unwrap().metadata().unwrap().is_dir())
+        .map(|res| String::from(res.unwrap().file_name().to_string_lossy()))
+        .collect::<Vec<String>>()
+}
+
+impl<'a> DirectoryPath<'a> {
+    pub fn new(path: PathBuf) -> DirectoryPath<'a> {
         let completions = get_path_completions(&path);
         DirectoryPath {
             path,
             completions,
             state: DirectoryPathStates::Default,
+            displayable_completions: VecDeque::from(vec![Spans::from(vec![Span::raw(
+                String::from(""),
+            )])]),
             // filter: String::from(""),
             filter: String::from(""),
             matcher: SkimMatcherV2::default(),
             rotate_idx: 0,
         }
     }
+
+    fn get_displayable_completions(&self) -> VecDeque<Spans<'a>> {
+        let texts: VecDeque<Spans> = VecDeque::new();
+
+        let mut displayable_completions: VecDeque<Spans> =
+            self.completions.iter().cloned().fold(texts, |mut acc, e| {
+                if self.filter.is_empty() {
+                    let spans = string_to_styled_text(e, vec![]);
+                    acc.push_back(spans);
+                    return acc;
+                }
+
+                if let Some((score, indices)) = self.matcher.fuzzy_indices(&e, &self.filter) {
+                    if score > 0 {
+                        let spans = string_to_styled_text(e, indices);
+                        acc.push_back(spans);
+                    }
+                }
+
+                acc
+            });
+
+        if !displayable_completions.is_empty() {
+            let rotate = self
+                .rotate_idx
+                .rem_euclid(displayable_completions.len() as i32);
+
+            displayable_completions.rotate_right(rotate as usize);
+        }
+
+        displayable_completions
+    }
 }
 
 pub enum StyleMode {
     Bold,
     Raw,
-}
-
-fn get_style(is_bold: bool) -> Style {
-    if is_bold {
-        return Style::default().add_modifier(Modifier::BOLD);
-    }
-    Style::default()
 }
 
 // fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Vec<Span<'static>> {
@@ -157,55 +189,59 @@ fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Spans<'
     Spans::from(spans)
 }
 
-impl<'a> Zone for DirectoryPath {
+impl<'a> Zone for DirectoryPath<'a> {
     fn get_displayable(&self) -> Tabs {
-        let texts: Vec<Spans> = vec![];
+        let mut displayable_completions = self.get_displayable_completions();
 
-        let mut filtered_completions: Vec<Spans> =
-            self.completions.iter().cloned().fold(texts, |mut acc, e| {
-                if self.filter.is_empty() {
-                    let spans = string_to_styled_text(e, vec![]);
-                    acc.push(spans);
-                    return acc;
-                }
+        // Add path
+        displayable_completions.push_front(Spans::from(vec![Span::raw(String::from(
+            self.path.to_string_lossy(),
+        ))]));
 
-                if let Some((score, indices)) = self.matcher.fuzzy_indices(&e, &self.filter) {
-                    if score > 0 {
-                        let spans = string_to_styled_text(e, indices);
-                        acc.push(spans);
-                    }
-                }
-
-                acc
-            });
-
-        if !filtered_completions.is_empty() {
-            // println!("\nfiltered_completions{:#?}", self.rotate_idx);
-            let rotate = (self.rotate_idx * 2).rem_euclid(filtered_completions.len() as i32);
-            filtered_completions.rotate_right(rotate as usize);
-        }
-
-        Tabs::new(filtered_completions)
+        Tabs::new(Vec::from(displayable_completions))
     }
 
     fn get_constraints(&self) -> Constraint {
         Constraint::Length(1)
     }
 
-    fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
+    fn process_event(&mut self, key_code: KeyCode, _: KeyModifiers) {
         match key_code {
             // KeyCode::Tab => match self.state {
             //     DirectoryPathStates::Default => {}
             //     _ => println!("unknown state"),
             // },
-            KeyCode::Tab => {
+            KeyCode::Left => {
                 self.rotate_idx += 1;
+                let _displayable_completions = self.get_displayable_completions();
+                self.displayable_completions = _displayable_completions;
+                // TODO HERE UPDATE CONPLETION CANDIDATE
+            }
+            KeyCode::Right => {
+                self.rotate_idx -= 1;
             }
             KeyCode::Backspace => {
-                let mut chars = self.filter.chars();
-                chars.next_back();
-                chars.next_back();
-                self.filter = chars.as_str().to_string();
+                if self.filter.is_empty() {
+                    self.path.pop();
+                    self.completions = get_path_completions(&self.path);
+                } else {
+                    let mut chars = self.filter.chars();
+                    chars.next_back();
+                    self.filter = chars.as_str().to_string();
+                }
+            }
+            KeyCode::Enter => {
+                let displayable_completions = self.get_displayable_completions();
+
+                let current_completion = displayable_completions[0].clone();
+
+                // Update path
+                self.path.push(String::from(current_completion));
+                // Cancel current filter
+                self.filter = String::from("");
+
+                // refresh completions here
+                self.completions = get_path_completions(&self.path);
             }
             KeyCode::Char(c) => {
                 self.filter = format!("{}{}", self.filter, c);
@@ -225,16 +261,16 @@ struct Displayer<'a> {
 
 impl<'a> Displayer<'a> {
     pub fn new() -> Displayer<'a> {
-        return Displayer {
+        Displayer {
             zones: Vec::new(),
             zone_index: 0,
             zone_number: 0,
-        };
+        }
     }
 
     pub fn push_zone(&mut self, zone: &'a mut dyn Zone) {
         self.zones.push(zone);
-        self.zone_number = self.zone_number + 1;
+        self.zone_number += 1;
     }
 
     pub fn move_zone(&mut self, zone_index_increment: i8) {
@@ -246,7 +282,16 @@ impl<'a> Displayer<'a> {
     }
 }
 
-fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &mut Displayer) {
+// fn update(displayer: &mut Displayer) {
+//     // let chunks = Layout::default().constraints(constraints).split(f.size());
+//     let zones = &displayer.zones;
+
+//     for (idx, zone) in zones.iter().enumerate() {
+//         let displayable = zone.update();
+//     }
+// }
+
+fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &Displayer) {
     // let chunks = Layout::default().constraints(constraints).split(f.size());
     let zones = &displayer.zones;
 
@@ -312,12 +357,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.clear()?;
 
     loop {
-        terminal.draw(|mut f| draw(&mut f, &mut displayer))?;
+        terminal.draw(|mut f| draw(&mut f, &displayer))?;
         match rx.recv()? {
             Event::Input(event) => {
-                match event.code {
-                    KeyCode::Char('q') => {
-                        if event.modifiers == KeyModifiers::CONTROL {
+                if event.modifiers == KeyModifiers::CONTROL {
+                    match event.code {
+                        KeyCode::Char('q') => {
                             disable_raw_mode()?;
                             execute!(
                                 terminal.backend_mut(),
@@ -325,37 +370,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 DisableMouseCapture
                             )?;
                             terminal.show_cursor()?;
+                            // end
                             break;
-                        } else {
-                            displayer.process_event(event.code, event.modifiers)
                         }
-                    }
 
-                    // Displayyer wide
-                    KeyCode::Up => {
-                        if event.modifiers == KeyModifiers::CONTROL {
+                        KeyCode::Up => {
                             displayer.move_zone(-1);
                         }
-                    }
 
-                    KeyCode::Down => {
-                        if event.modifiers == KeyModifiers::CONTROL {
+                        KeyCode::Down => {
                             displayer.move_zone(1);
                         }
-                    }
 
-                    // Zone wide
-                    _ => displayer.process_event(event.code, event.modifiers),
+                        _ => displayer.process_event(event.code, event.modifiers),
+                    }
+                } else {
+                    displayer.process_event(event.code, event.modifiers)
                 }
             }
             Event::Tick => {
                 // data.on_tick();
             }
         }
-
-        // if data.should_quit {
-        //     break;
-        // }
     }
 
     Ok(())
