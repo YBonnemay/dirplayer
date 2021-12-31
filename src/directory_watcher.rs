@@ -1,4 +1,3 @@
-use crate::zone::Zone;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use notify::{watcher, RecursiveMode, Watcher};
@@ -11,11 +10,7 @@ use tui::text::{Span, Spans};
 use tui::widgets::{Paragraph, Tabs};
 use walkdir::WalkDir;
 
-// This represents an updated view on a directory.
-// It makes the recursive contents of a directory available and updated.
-// For that is waits for notify::Watcher events
-
-pub struct Directory {
+pub struct DirectoryWatcher {
     pub path: Arc<RwLock<PathBuf>>,
     pub _watcher: notify::INotifyWatcher,
     pub _sender: crossbeam_channel::Sender<std::result::Result<notify::Event, notify::Error>>,
@@ -23,8 +18,8 @@ pub struct Directory {
     pub lines: Arc<RwLock<Vec<String>>>,
 }
 
-impl Directory {
-    pub fn new(pathbuf: PathBuf) -> Directory {
+impl DirectoryWatcher {
+    pub fn new(pathbuf: PathBuf) -> DirectoryWatcher {
         let (sender, receiver) = unbounded();
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
 
@@ -34,7 +29,7 @@ impl Directory {
             .watch(pathbuf.clone(), RecursiveMode::Recursive)
             .unwrap();
 
-        Directory {
+        DirectoryWatcher {
             path,
             _sender: sender,
             _watcher: watcher,
@@ -61,7 +56,7 @@ impl Directory {
     pub fn refresh_lines(&self) {
         let path = self.path.clone();
         let lines = self.lines.clone();
-        Directory::get_new_lines(&path, &lines);
+        DirectoryWatcher::get_new_lines(&path, &lines);
     }
 
     pub fn listen(&self) {
@@ -73,33 +68,19 @@ impl Directory {
         thread::spawn(move || loop {
             match receiver.recv() {
                 Ok(_) => {
-                    Directory::get_new_lines(&path, &lines);
+                    DirectoryWatcher::get_new_lines(&path, &lines);
                 }
                 Err(e) => println!("watch error: {:?}", e),
             };
         });
     }
-}
 
-impl Zone for Directory {
-    fn get_displayable(&self) -> Tabs {
+    pub fn get_displayable(&self) -> Tabs {
         Tabs::new(vec![Spans::from(Span::raw(" TODO "))])
     }
-
-    // fn get_displayable(&self) -> Paragraph {
-    //     self.lines
-    //         .clone()
-    //         .read()
-    //         .unwrap()
-    //         .to_vec()
-    //         .into_iter()
-    //         .map(|e| Text::from(e))
-    //         .collect::<Vec<Text>>()
-    // }
-
-    fn get_constraints(&self) -> Constraint {
+    pub fn get_constraints(&self) -> Constraint {
         Constraint::Length(1)
     }
 
-    fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {}
+    pub fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {}
 }

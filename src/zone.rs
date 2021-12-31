@@ -1,7 +1,9 @@
 use crossterm::event::{KeyCode, KeyModifiers};
+use tui::backend::Backend;
 use tui::layout::Constraint;
+use tui::widgets::Tabs;
+use tui::Frame;
 
-use tui::widgets::{Paragraph, Tabs};
 pub trait Zone {
     fn get_displayable(&self) -> Tabs;
 
