@@ -1,6 +1,7 @@
-mod directory_selector;
-mod directory_watcher;
+mod app;
+mod handlers;
 
+use app::App;
 use crossbeam_channel::unbounded;
 use crossterm::{
     event::{
@@ -9,8 +10,6 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use directory_selector::DirectorySelector;
-use directory_watcher::DirectoryWatcher;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::{stdout, Write};
@@ -39,65 +38,18 @@ struct Config {
     working_directory: String,
 }
 
-pub struct Displayer<'a> {
-    zone_index: i8,
-    zone_number: i8,
-    pub directory_path: DirectorySelector<'a>,
-    // pub directory_watcher: DirectoryWatcher<'a>,
-}
-
-impl<'a> Displayer<'a> {
-    pub fn new() -> Displayer<'a> {
-        Displayer {
-            zone_index: 0,
-            zone_number: 0,
-            directory_path: DirectorySelector::new(PathBuf::from(String::from("/"))),
-            // directory_watcher: DirectoryWatcher::new(PathBuf::from(String::from("/"))),
-        }
-    }
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<'a> Displayer<'a> {
-    pub fn move_zone(&mut self, zone_index_increment: i8) {
-        self.zone_index = (self.zone_index + zone_index_increment).rem_euclid(self.zone_number);
-    }
-
-    pub fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
-        // self.zones[self.zone_index as usize].process_event(key_code, key_modifiers);
-
-        if key_modifiers == KeyModifiers::CONTROL {
-            match key_code {
-                KeyCode::Up => {
-                    self.move_zone(-1);
-                }
-
-                KeyCode::Down => {
-                    self.move_zone(1);
-                }
-
-                _ => (),
-            }
-        } else {
-            self.directory_path.process_event(key_code, key_modifiers);
-        }
-    }
-}
-
 fn get_config() -> Config {
     let json = include_str!("/home/bonnemay/github/dirplayer/src/config/config.json");
     serde_json::from_str::<Config>(json).unwrap()
 }
 
-fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, displayer: &Displayer) {
-    let constraints = displayer.directory_path.get_constraints();
+fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &App) {
+    let constraints = app.directory_selector.constraints;
     let chunks = Layout::default()
         .constraints(vec![constraints])
         .split(f.size());
 
-    let displayable = displayer.directory_path.get_displayable();
+    let displayable = handlers::selector::get_displayable(app);
     f.render_widget(displayable, chunks[0]);
 }
 
@@ -118,12 +70,10 @@ pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
     // let starting_directory = "/home/bonnemay/downloads/aa_inbox";
-    let mut displayer = Displayer::new();
-    displayer
-        .directory_path
-        .set_path(PathBuf::from(String::from(
-            "/home/bonnemay/github/dirplayer",
-        )));
+    let mut app = App::new();
+    app.set_path(PathBuf::from(String::from(
+        "/home/bonnemay/github/dirplayer",
+    )));
 
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();
@@ -161,7 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.clear()?;
 
     loop {
-        terminal.draw(|mut f| draw(&mut f, &displayer))?;
+        terminal.draw(|mut f| draw(&mut f, &app))?;
         match rx.recv()? {
             Event::Input(event) => {
                 if event.modifiers == KeyModifiers::CONTROL
@@ -177,7 +127,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // end
                     break;
                 } else {
-                    displayer.process_event(event.code, event.modifiers)
+                    app.process_event(event.code, event.modifiers)
                 }
             }
             Event::Tick => {

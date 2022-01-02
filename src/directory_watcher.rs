@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 use tui::layout::Constraint;
 use tui::text::{Span, Spans};
-use tui::widgets::{Paragraph, Tabs};
+use tui::widgets::Tabs;
 use walkdir::WalkDir;
 
 pub struct DirectoryWatcher {
@@ -25,9 +25,7 @@ impl DirectoryWatcher {
 
         let path = Arc::new(RwLock::new(pathbuf.clone()));
         // Watching directory.
-        watcher
-            .watch(pathbuf.clone(), RecursiveMode::Recursive)
-            .unwrap();
+        watcher.watch(pathbuf, RecursiveMode::Recursive).unwrap();
 
         DirectoryWatcher {
             path,
