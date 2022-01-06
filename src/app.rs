@@ -1,3 +1,4 @@
+use crate::directory_watcher::DirectoryWatcher;
 use crate::handlers::selector;
 use crate::KeyCode;
 use crate::KeyModifiers;
@@ -46,29 +47,27 @@ impl<'a> DirectorySelector<'a> {
             constraints: Constraint::Length(1),
         }
     }
-
-    pub fn test(&self, app: &'a App) -> Tabs<'a> {
-        let mut displayable_completions = selector::get_displayable_completions(app);
-
-        // Add path
-        displayable_completions
-            .push_front(Spans::from(vec![Span::raw(app.path.to_string_lossy())]));
-
-        Tabs::new(Vec::from(displayable_completions))
-    }
 }
 
 pub struct App<'a> {
     current_zone: Zone,
     pub directory_selector: DirectorySelector<'a>,
+    pub directory_watcher: DirectoryWatcher,
     pub path: PathBuf,
 }
 
 impl<'a> App<'a> {
     pub fn new() -> App<'a> {
+        let app = App::default();
+        app.directory_watcher.listen();
+        app
+    }
+
+    pub fn default() -> App<'a> {
         App {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),
+            directory_watcher: DirectoryWatcher::new(),
             path: PathBuf::from(String::from("/")),
         }
     }
@@ -102,10 +101,10 @@ impl<'a> App<'a> {
     }
 
     pub fn set_path(&mut self, path: PathBuf) {
+        selector::update_completions(self, &path);
+        let mut unwrapped_path = self.directory_watcher.path.write().unwrap();
+        *unwrapped_path = path.clone();
         self.path = path;
-
         // refresh completions here
-        self.directory_selector.completions = get_path_completions(&self.path);
-        self.directory_selector.test(self);
     }
 }

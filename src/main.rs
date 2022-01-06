@@ -1,4 +1,5 @@
 mod app;
+mod directory_watcher;
 mod handlers;
 
 use app::App;
@@ -10,6 +11,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::{stdout, Write};
@@ -45,12 +47,15 @@ fn get_config() -> Config {
 
 fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &App) {
     let constraints = app.directory_selector.constraints;
+    let constraints_files = app.directory_watcher.get_constraints();
     let chunks = Layout::default()
-        .constraints(vec![constraints])
+        .constraints(vec![constraints, constraints_files])
         .split(f.size());
 
-    let displayable = handlers::selector::get_displayable(app);
-    f.render_widget(displayable, chunks[0]);
+    let displayable_directories = handlers::selector::get_displayable(app);
+    let displayable_files = app.directory_watcher.get_displayable();
+    f.render_widget(displayable_directories, chunks[0]);
+    f.render_widget(displayable_files, chunks[1]);
 }
 
 pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
@@ -127,7 +132,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // end
                     break;
                 } else {
-                    app.process_event(event.code, event.modifiers)
+                    let path = app.path.clone();
+                    app.set_path(path);
+                    app.process_event(event.code, event.modifiers);
+                    // app.path
                 }
             }
             Event::Tick => {

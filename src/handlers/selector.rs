@@ -3,6 +3,7 @@ use crate::app::App;
 use crossterm::event::{KeyCode, KeyModifiers};
 use fuzzy_matcher::FuzzyMatcher;
 use std::collections::VecDeque;
+use std::path::Path;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::Tabs;
@@ -119,4 +120,8 @@ pub fn process_event(app: &mut App, key_code: KeyCode, _: KeyModifiers) {
         }
         _ => {}
     }
+}
+
+pub fn update_completions<'a>(app: &'a mut App, path: &Path) {
+    app.directory_selector.completions = get_path_completions(path);
 }
