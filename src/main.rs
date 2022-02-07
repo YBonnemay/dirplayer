@@ -53,9 +53,10 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &App) {
         .split(f.size());
 
     let displayable_directories = handlers::selector::get_displayable(app);
-    let displayable_files = app.directory_watcher.get_displayable();
+    let (displayable_files, mut list_state) = app.directory_watcher.get_displayable();
     f.render_widget(displayable_directories, chunks[0]);
-    f.render_widget(displayable_files, chunks[1]);
+    f.render_stateful_widget(displayable_files, chunks[1], &mut list_state);
+    list_state.select(Some(app.directory_watcher.line_index as usize));
 }
 
 pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
@@ -76,9 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Start
     // let starting_directory = "/home/bonnemay/downloads/aa_inbox";
     let mut app = App::new();
-    app.set_path(PathBuf::from(String::from(
-        "/home/bonnemay/github/dirplayer",
-    )));
+    let path = PathBuf::from(String::from("/home/bonnemay/data/music"));
+    app.set_path(path);
 
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();

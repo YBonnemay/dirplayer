@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Yann Bonnemay <y.bonnemay@gmail.com>"]
 
 edition = "2018"
+
 [dependencies]
 argh = "*"
 crossbeam = "*"
@@ -17,3 +18,4 @@ serde_json = "*"
 tui =  { version = "0.13.0", default-features = false, features = ['crossterm'] }
 walkdir = "2"
 fuzzy-matcher = "*"
+rodio = { version = "*" }

@@ -9,7 +9,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use tui::layout::Constraint;
 use tui::text::{Span, Spans};
-use tui::widgets::Tabs;
 
 pub fn get_path_completions(path: &Path) -> Vec<String> {
     fs::read_dir(path)
@@ -80,6 +79,9 @@ impl<'a> App<'a> {
                 }
             }
             KeyCode::Down => {
+                let lines = self.directory_watcher.lines.clone();
+                let path = self.path.clone();
+                DirectoryWatcher::update_lines(&path, &lines);
                 if self.current_zone == Zone::Directory {
                     self.current_zone = Zone::Content
                 }
@@ -95,7 +97,9 @@ impl<'a> App<'a> {
         } else {
             match self.current_zone {
                 Zone::Directory => selector::process_event(self, key_code, key_modifiers),
-                _ => (),
+                Zone::Content => self
+                    .directory_watcher
+                    .process_event(key_code, key_modifiers),
             }
         }
     }

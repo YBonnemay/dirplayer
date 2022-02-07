@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
-use tui::widgets::Tabs;
+use tui::widgets::{ListState, Tabs};
 
 pub fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Spans<'static> {
     let bold_style = Style::default()
@@ -67,12 +67,11 @@ pub fn get_displayable_completions<'a>(app: &App) -> VecDeque<Spans<'a>> {
     displayable_completions
 }
 
-pub fn get_displayable<'a>(app: &'a App) -> Tabs<'a> {
+pub fn get_displayable<'a>(app: &'a App) -> (Tabs<'a>) {
     let mut displayable_completions = get_displayable_completions(app);
 
     // Add path
     displayable_completions.push_front(Spans::from(vec![Span::raw(app.path.to_string_lossy())]));
-
     Tabs::new(Vec::from(displayable_completions))
 }
 
