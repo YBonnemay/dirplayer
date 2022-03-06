@@ -1,0 +1,23 @@
+[package]
+name = "dirplayer"
+version = "0.1.0"
+authors = ["Yann Bonnemay <y.bonnemay@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+argh = "*"
+crossbeam = "*"
+crossbeam-channel = "0.3.8"
+crossterm = "*"
+notify = "=5.0.0-pre.1"
+rand = "*"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "*"
+serde_json = "*"
+tui =  { version = "0.17.0", default-features = false, features = ['crossterm'] }
+walkdir = "2"
+fuzzy-matcher = "*"
+rodio = { version = "*", features = ['symphonia-isomp4', 'symphonia-aac'] }
+chrono = "*"
+libmpv = { version = "2" }
+anyhow = "1.0"

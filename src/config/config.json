@@ -1,0 +1,28 @@
+{
+  "working_directory": "/home/bonnemay/downloads/aa_inbox/Adrien",
+  "tick_rate": "1000",
+  "enhanced_graphics": true,
+  "extensions": [
+    "mp3",
+    "mp4",
+    "avi",
+    "ogg"
+  ],
+  "boxes": [
+    {
+      "name": "input",
+      "after": "top",
+      "length": 1
+    },
+    {
+      "name": "output",
+      "after": "input",
+      "length": null
+    },
+    {
+      "name": "display",
+      "after": "input",
+      "length": -1
+    }
+  ]
+}
