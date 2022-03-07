@@ -1,5 +1,6 @@
 use crate::directory_watcher::DirectoryWatcher;
 use crate::handlers::selector;
+use crate::utils;
 use crate::KeyCode;
 use crate::KeyModifiers;
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -35,8 +36,9 @@ pub struct DirectorySelector<'a> {
 
 impl<'a> DirectorySelector<'a> {
     pub fn new() -> DirectorySelector<'a> {
+        let config = utils::config::get_set_config();
         DirectorySelector {
-            completions: get_path_completions(&PathBuf::from(String::from("/"))),
+            completions: get_path_completions(&PathBuf::from(config.working_directory[0].clone())),
             displayable_completions: VecDeque::from(vec![Spans::from(vec![Span::raw(
                 String::from(""),
             )])]),
@@ -63,11 +65,12 @@ impl<'a> App<'a> {
     }
 
     pub fn default() -> App<'a> {
+        let config = utils::config::get_set_config();
         App {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),
             directory_watcher: DirectoryWatcher::new(),
-            path: PathBuf::from(String::from("/")),
+            path: PathBuf::from(config.working_directory[0].clone()),
         }
     }
 
@@ -80,11 +83,9 @@ impl<'a> App<'a> {
             }
 
             KeyCode::Down => {
-                let lines = self.directory_watcher.lines.clone();
                 let path = self.path.clone();
-                self.set_path(path);
-                let path = self.path.clone();
-                DirectoryWatcher::update_lines(&path, &lines);
+                selector::update_selector(self, &path);
+                self.update_directory_watcher(path);
                 if self.current_zone == Zone::Directory {
                     self.current_zone = Zone::Content
                 }
@@ -107,10 +108,17 @@ impl<'a> App<'a> {
         }
     }
 
-    pub fn set_path(&mut self, path: PathBuf) {
-        selector::update_completions(self, &path);
-        self.directory_watcher.set_path(path.clone());
-        self.path = path;
+    fn update_directory_watcher(&mut self, path: PathBuf) {
+        let lines = self.directory_watcher.lines.clone();
+        self.directory_watcher.update_path(path.clone());
+        DirectoryWatcher::update_lines(&path, &lines);
+
+        let mut config = utils::config::get_config();
+        let new_path = String::from(path.to_str().unwrap());
+        if !config.working_directory.contains(&new_path) {
+            config.working_directory.push(new_path);
+            utils::config::update_config(config);
+        }
     }
 
     pub fn process_tick(&mut self) {

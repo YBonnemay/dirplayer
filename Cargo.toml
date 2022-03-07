@@ -21,3 +21,4 @@ rodio = { version = "*", features = ['symphonia-isomp4', 'symphonia-aac'] }
 chrono = "*"
 libmpv = { version = "2" }
 anyhow = "1.0"
+dirs = "4.0"

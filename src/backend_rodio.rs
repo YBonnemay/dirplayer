@@ -38,7 +38,10 @@ impl Rodio {
             let mut sink = rodio::Sink::try_new(&stream_handle).unwrap();
 
             loop {
-                let event: Event = receiver.recv().unwrap();
+                let event: Event = match receiver.recv() {
+                    Ok(e) => e,
+                    Err(err) => panic!("Error event: {:?}", err),
+                };
                 match event.event_type {
                     EventType::Start => {
                         *busy.write().unwrap() = true;

@@ -121,6 +121,6 @@ pub fn process_event(app: &mut App, key_code: KeyCode, _: KeyModifiers) {
     }
 }
 
-pub fn update_completions<'a>(app: &'a mut App, path: &Path) {
+pub fn update_selector<'a>(app: &'a mut App, path: &Path) {
     app.directory_selector.completions = get_path_completions(path);
 }

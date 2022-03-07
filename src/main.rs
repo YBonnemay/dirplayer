@@ -5,7 +5,9 @@ pub mod backend_trait;
 mod constants;
 mod directory_watcher;
 mod handlers;
+mod utils;
 
+use crate::handlers::selector;
 use app::App;
 use crossbeam_channel::unbounded;
 use crossterm::{
@@ -15,8 +17,6 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-
-use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
@@ -29,19 +29,6 @@ use tui::{backend::CrosstermBackend, Terminal};
 enum Event<I> {
     Input(I),
     Tick,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Config {
-    enhanced_graphics: bool,
-    extensions: Vec<String>,
-    tick_rate: String,
-    working_directory: String,
-}
-
-fn get_config() -> Config {
-    let json = include_str!("/home/bonnemay/github/dirplayer/src/config/config.json");
-    serde_json::from_str::<Config>(json).unwrap()
 }
 
 fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &App) {
@@ -71,20 +58,21 @@ pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Start
-    // let starting_directory = "/home/bonnemay/downloads/aa_inbox";
-    let mut app = App::new();
-    let path = PathBuf::from(String::from("/home/bonnemay/data/music_test"));
-    app.set_path(path);
+    // TODO: two path : one watcher, one app -> clean that
+    // TODO: handler selector confusing when watcher is an object. Clean.
+    // TODO: Clean!
 
+    let config = utils::config::get_set_config();
+    let mut app = App::new();
+    let path = PathBuf::from(config.working_directory[0].clone());
+
+    selector::update_selector(&mut app, &path);
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?; // crossterm event setup
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     terminal.hide_cursor()?;
-
-    let config = get_config();
 
     // Setup input handling
     let (tx, rx) = unbounded();
@@ -130,7 +118,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     break;
                 } else {
                     let path = app.path.clone();
-                    app.set_path(path);
+                    // app.set_path(path);
+                    selector::update_selector(&mut app, &path);
                     app.process_event(event.code, event.modifiers);
                 }
             }

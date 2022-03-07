@@ -84,7 +84,7 @@ impl DirectoryWatcher {
         *writable_lines = new_lines;
     }
 
-    pub fn set_path(&mut self, new_path: PathBuf) {
+    pub fn update_path(&mut self, new_path: PathBuf) {
         let path = self.path.clone();
         let unwrapped_path = path.read().unwrap().clone();
         self.watcher.unwatch(unwrapped_path).unwrap();
@@ -97,7 +97,7 @@ impl DirectoryWatcher {
     }
 
     pub fn listen(&mut self, path: PathBuf) {
-        self.set_path(path);
+        self.update_path(path);
 
         let receiver = self.receiver.clone();
         let lines = self.lines.clone();
