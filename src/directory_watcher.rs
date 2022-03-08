@@ -18,9 +18,6 @@ use tui::widgets::{Cell, Row, Table, TableState};
 use tui::Frame;
 use walkdir::{DirEntry, WalkDir};
 
-// https://users.rust-lang.org/t/how-to-use-self-while-spawning-a-thread-from-method/8282/6
-// https://stackoverflow.com/questions/42043823/design-help-threading-within-a-struct
-
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Line {
     file_name: String,

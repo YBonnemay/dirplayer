@@ -31,6 +31,7 @@ pub struct DirectorySelector<'a> {
     pub displayable_completions: VecDeque<Spans<'a>>,
     pub filter: String,
     pub rotate_idx: i32,
+    pub rotate_history_idx: i32,
     pub constraints: Constraint,
 }
 
@@ -38,13 +39,16 @@ impl<'a> DirectorySelector<'a> {
     pub fn new() -> DirectorySelector<'a> {
         let config = utils::config::get_set_config();
         DirectorySelector {
-            completions: get_path_completions(&PathBuf::from(config.working_directory[0].clone())),
+            completions: get_path_completions(&PathBuf::from(
+                config.working_directories[0].clone(),
+            )),
             displayable_completions: VecDeque::from(vec![Spans::from(vec![Span::raw(
                 String::from(""),
             )])]),
             filter: String::from(""),
             matcher: SkimMatcherV2::default(),
             rotate_idx: 0,
+            rotate_history_idx: 0,
             constraints: Constraint::Length(1),
         }
     }
@@ -70,7 +74,7 @@ impl<'a> App<'a> {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),
             directory_watcher: DirectoryWatcher::new(),
-            path: PathBuf::from(config.working_directory[0].clone()),
+            path: PathBuf::from(config.working_directories[0].clone()),
         }
     }
 
@@ -115,8 +119,8 @@ impl<'a> App<'a> {
 
         let mut config = utils::config::get_config();
         let new_path = String::from(path.to_str().unwrap());
-        if !config.working_directory.contains(&new_path) {
-            config.working_directory.push(new_path);
+        if !config.working_directories.contains(&new_path) {
+            config.working_directories.push_front(new_path);
             utils::config::update_config(config);
         }
     }

@@ -61,10 +61,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: two path : one watcher, one app -> clean that
     // TODO: handler selector confusing when watcher is an object. Clean.
     // TODO: Clean!
+    // TODO: filter directories
+    // TODO: Debounce dig directories
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
-    let path = PathBuf::from(config.working_directory[0].clone());
+    let path = PathBuf::from(config.working_directories.front().unwrap());
 
     selector::update_selector(&mut app, &path);
     enable_raw_mode()?; // crossterm terminal setup
@@ -117,9 +119,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // end
                     break;
                 } else {
-                    let path = app.path.clone();
-                    // app.set_path(path);
-                    selector::update_selector(&mut app, &path);
                     app.process_event(event.code, event.modifiers);
                 }
             }

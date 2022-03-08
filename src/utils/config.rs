@@ -1,12 +1,13 @@
 use dirs::home_dir;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::VecDeque;
 use std::fs::File;
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub extensions: Vec<String>,
     pub tick_rate: String,
-    pub working_directory: Vec<String>,
+    pub working_directories: VecDeque<String>,
 }
 
 impl Default for Config {
@@ -17,12 +18,12 @@ impl Default for Config {
                 .map(String::from)
                 .collect(),
             tick_rate: String::from("1000"),
-            working_directory: vec![String::from(
+            working_directories: VecDeque::from([String::from(
                 dirs::document_dir()
                     .expect("Could not find home directory.")
                     .to_str()
                     .unwrap(),
-            )],
+            )]),
         }
     }
 }

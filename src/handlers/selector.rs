@@ -1,9 +1,11 @@
 use crate::app::get_path_completions;
 use crate::app::App;
+use crate::utils;
 use crossterm::event::{KeyCode, KeyModifiers};
 use fuzzy_matcher::FuzzyMatcher;
 use std::collections::VecDeque;
 use std::path::Path;
+use std::path::PathBuf;
 use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::Tabs;
@@ -77,11 +79,34 @@ pub fn get_displayable<'a>(app: &'a App) -> Tabs<'a> {
 
 pub fn process_event(app: &mut App, key_code: KeyCode, _: KeyModifiers) {
     match key_code {
+        KeyCode::Down => {
+            app.directory_selector.rotate_history_idx += 1;
+            let config = utils::config::get_set_config();
+            let mut working_directories = config.working_directories;
+            working_directories.rotate_right(
+                (app.directory_selector.rotate_history_idx % working_directories.len() as i32)
+                    as usize,
+            );
+            app.path = PathBuf::from(working_directories.front().unwrap());
+            app.directory_selector.completions = get_path_completions(&app.path);
+        }
+        KeyCode::Up => {
+            if app.directory_selector.rotate_history_idx > 0 {
+                app.directory_selector.rotate_history_idx -= 1;
+            }
+            let config = utils::config::get_set_config();
+            let mut working_directories = config.working_directories;
+            working_directories.rotate_right(
+                (app.directory_selector.rotate_history_idx % working_directories.len() as i32)
+                    as usize,
+            );
+            app.path = PathBuf::from(working_directories.front().unwrap());
+            app.directory_selector.completions = get_path_completions(&app.path);
+        }
         KeyCode::Left => {
             app.directory_selector.rotate_idx += 1;
-            let _displayable_completions = get_displayable_completions(app);
-            app.directory_selector.displayable_completions = _displayable_completions;
-            // TODO HERE UPDATE CONPLETION CANDIDATE
+            let displayable_completions = get_displayable_completions(app);
+            app.directory_selector.displayable_completions = displayable_completions;
         }
         KeyCode::Right => {
             app.directory_selector.rotate_idx -= 1;
