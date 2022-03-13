@@ -116,18 +116,65 @@ impl DirectoryWatcher {
         let lines = self.lines.read().unwrap().to_vec();
         let path = self.path.read().unwrap().clone();
 
-        let list_items: Vec<Row> = lines
-            .into_iter()
+        // We only display a term-sized slice of the songs, centered on the current index.
+        // This silly dance to ensure table scales with many songs.
+        let lines_size = lines.len() as i32;
+        let slice_size = f.size().height;
+
+        let slice_size_half = slice_size / 2;
+        let mut slice_index = slice_size_half as i32;
+        let mut slice_free_index_high_border;
+        let mut slice_free_index_low_border;
+
+        let sliding_slice_mode = lines_size > slice_size as i32;
+
+        if sliding_slice_mode {
+            slice_free_index_high_border = self.line_index - slice_size_half as i32;
+            slice_free_index_low_border = self.line_index + slice_size_half as i32;
+
+            let overlap_high = cmp::max(-slice_free_index_high_border, 0);
+            let overlap_low = slice_free_index_low_border - lines_size;
+
+            if overlap_high > 0 {
+                // Move slice down
+                slice_free_index_high_border += overlap_high;
+                slice_free_index_low_border += overlap_high;
+
+                // Move index up
+                slice_index -= overlap_high;
+            }
+
+            if overlap_low > 0 {
+                // Move slice up
+                slice_free_index_high_border -= overlap_low;
+                slice_free_index_low_border -= overlap_low;
+
+                // Move index up
+                slice_index += overlap_low;
+            }
+        } else {
+            slice_free_index_high_border = 0;
+            slice_free_index_low_border = lines_size as i32;
+            slice_index = self.line_index;
+        }
+
+        let list_items =
+            &lines[slice_free_index_high_border as usize..slice_free_index_low_border as usize];
+
+        let list_items: Vec<Row> = list_items
+            .iter()
             .map(|e| {
                 let created = e.metadata().unwrap().created().unwrap();
                 let date_time = DateTime::<Utc>::from(created);
                 let path: String = e
+                    .clone()
                     .into_path()
                     .strip_prefix(&path)
                     .unwrap()
                     .to_str()
                     .unwrap()
                     .into();
+
                 let data = vec![
                     Cell::from(path),
                     Cell::from(date_time.format("%Y-%m-%d %H-%M-%S").to_string()),
@@ -141,7 +188,7 @@ impl DirectoryWatcher {
             .widths(&[Constraint::Percentage(50), Constraint::Length(30)]);
 
         let mut state = TableState::default();
-        state.select(Some(self.line_index as usize));
+        state.select(Some(slice_index as usize));
 
         let chunks = Layout::default()
             .constraints([Constraint::Percentage(100)].as_ref())
