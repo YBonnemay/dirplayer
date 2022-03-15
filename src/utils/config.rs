@@ -1,13 +1,18 @@
-use dirs::home_dir;
 use serde_derive::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fs::File;
+use std::path::PathBuf;
+
+static CONFIG_PATH: &str = ".config/dirplayer/config.json";
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
     pub extensions: Vec<String>,
     pub tick_rate: String,
     pub working_directories: VecDeque<String>,
+    pub working_directory_line_index: HashMap<String, i32>,
+    pub path: String,
 }
 
 impl Default for Config {
@@ -24,8 +29,21 @@ impl Default for Config {
                     .to_str()
                     .unwrap(),
             )]),
+            working_directory_line_index: HashMap::default(),
+            path: String::from(PathBuf::default().to_str().unwrap()),
         }
     }
+}
+
+pub fn set_defaut_config() -> Config {
+    let mut config_file = dirs::home_dir().expect("Could not find home directory.");
+    config_file.push(CONFIG_PATH);
+    let config = Config::default();
+    let path_to_config = config_file.parent().unwrap();
+    std::fs::create_dir_all(path_to_config).expect("Could not crate path to config file.");
+    let file = File::create(config_file).expect("Could not create config file.");
+    serde_json::to_writer(file, &config).expect("Could not save to config file.");
+    config
 }
 
 pub fn get_set_config() -> Config {
@@ -34,15 +52,12 @@ pub fn get_set_config() -> Config {
 
     if config_file.is_file() {
         let file = File::open(config_file).expect("Could not find config file.");
-        let config: Config = serde_json::from_reader(file).unwrap();
-        config
+        match serde_json::from_reader(file) {
+            Ok(config) => config,
+            Err(_) => set_defaut_config(),
+        }
     } else {
-        let config = Config::default();
-        let path_to_config = config_file.parent().unwrap();
-        std::fs::create_dir_all(path_to_config).expect("Could not crate path to config file.");
-        let file = File::create(config_file).expect("Could not create config file.");
-        serde_json::to_writer(file, &config).expect("Could not save to config file.");
-        config
+        set_defaut_config()
     }
 }
 
@@ -61,17 +76,3 @@ pub fn update_config(config: Config) {
     let file = File::create(config_file).expect("Could not create config file.");
     serde_json::to_writer(file, &config).expect("Could not save to config file.");
 }
-
-// let json = include_str!("/home/bonnemay/github/dirplayer/src/config/config.json");
-// serde_json::from_str::<Config>(json).unwrap()
-
-// pub fn get_config() -> Config {
-//     let json = include_str!("/home/bonnemay/github/dirplayer/src/config/config.json");
-//     serde_json::from_str::<Config>(json).unwrap()
-// }
-
-// pub fn get_config() -> Config {
-//     fs::create_dir_all(path);
-//     let json = include_str!("/home/bonnemay/github/dirplayer/src/config/config.json");
-//     serde_json::from_str::<Config>(json).unwrap()
-// }

@@ -37,7 +37,7 @@ pub struct DirectorySelector<'a> {
 
 impl<'a> DirectorySelector<'a> {
     pub fn new() -> DirectorySelector<'a> {
-        let config = utils::config::get_set_config();
+        let config = utils::config::get_config();
         DirectorySelector {
             completions: get_path_completions(&PathBuf::from(
                 config.working_directories[0].clone(),
@@ -69,7 +69,7 @@ impl<'a> App<'a> {
     }
 
     pub fn default() -> App<'a> {
-        let config = utils::config::get_set_config();
+        let config = utils::config::get_config();
         App {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),

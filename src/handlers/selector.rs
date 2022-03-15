@@ -81,7 +81,7 @@ pub fn process_event(app: &mut App, key_code: KeyCode, _: KeyModifiers) {
     match key_code {
         KeyCode::Down => {
             app.directory_selector.rotate_history_idx += 1;
-            let config = utils::config::get_set_config();
+            let config = utils::config::get_config();
             let mut working_directories = config.working_directories;
             working_directories.rotate_right(
                 (app.directory_selector.rotate_history_idx % working_directories.len() as i32)
@@ -94,7 +94,7 @@ pub fn process_event(app: &mut App, key_code: KeyCode, _: KeyModifiers) {
             if app.directory_selector.rotate_history_idx > 0 {
                 app.directory_selector.rotate_history_idx -= 1;
             }
-            let config = utils::config::get_set_config();
+            let config = utils::config::get_config();
             let mut working_directories = config.working_directories;
             working_directories.rotate_right(
                 (app.directory_selector.rotate_history_idx % working_directories.len() as i32)

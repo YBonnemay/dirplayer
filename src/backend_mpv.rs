@@ -44,11 +44,8 @@ impl AudioBackend for Mpv {
     }
 
     fn busy(&self) -> bool {
-        !self
-            .player
-            .get_property::<bool>("core-idle")
-            // .get_property::<bool>("eof-reached")
-            .unwrap_or(false)
+        let pos = self.player.get_property("percent-pos").unwrap_or(0);
+        pos < 100
     }
 
     fn state(&self) -> SongState {

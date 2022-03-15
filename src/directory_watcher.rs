@@ -2,6 +2,7 @@ use crate::backend_mpv::Mpv;
 use crate::backend_rodio::Rodio;
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
+use crate::utils;
 use chrono::{DateTime, Utc};
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
@@ -43,6 +44,7 @@ impl DirectoryWatcher {
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
         let path = Arc::new(RwLock::new(PathBuf::default()));
         // Watching directory.
+
         watcher
             .watch(PathBuf::default(), RecursiveMode::Recursive)
             .unwrap();
@@ -62,6 +64,7 @@ impl DirectoryWatcher {
     }
 
     pub fn update_lines(path: &Path, lines: &Arc<RwLock<Vec<DirEntry>>>) {
+        // Update index
         let mut new_lines = WalkDir::new(path)
             .into_iter()
             .filter(|e| {
@@ -90,7 +93,18 @@ impl DirectoryWatcher {
             .unwrap();
         let path = self.path.clone();
         let mut unwrapped_path = path.write().unwrap();
-        *unwrapped_path = new_path;
+        *unwrapped_path = new_path.clone();
+
+        // Get current index from config, else 0
+        let config = utils::config::get_config();
+        if let Some(line_index) = config
+            .working_directory_line_index
+            .get(new_path.to_str().unwrap())
+        {
+            self.line_index = *line_index;
+        } else {
+            self.line_index = 0;
+        }
     }
 
     pub fn listen(&mut self, path: PathBuf) {
@@ -209,7 +223,10 @@ impl DirectoryWatcher {
         match key_code {
             KeyCode::Down => self.line_down(),
             KeyCode::Up => self.line_up(),
-            KeyCode::Enter => self.play_file(),
+            KeyCode::Enter => {
+                crate::deprintln!("Enter event");
+                self.play_file();
+            }
             _ => (),
         }
     }
@@ -226,16 +243,27 @@ impl DirectoryWatcher {
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
         if new_file == current_file {
+            crate::deprintln!("Toggle file {} ", new_file);
             current_backend.toggle();
             self.paused = current_backend.state() == SongState::Paused;
         } else {
             if current_backend.busy() {
+                crate::deprintln!("Stop backend");
                 current_backend.pause();
             }
             let new_backend = self.get_backend(&new_file);
+            crate::deprintln!("Start file {} ", new_file);
             new_backend.start(&new_file);
             self.current_file = new_file;
         }
+
+        let mut config = utils::config::get_config();
+        let path = self.path.read().unwrap().clone();
+        *(config
+            .working_directory_line_index
+            .get_mut(path.to_str().unwrap())
+            .unwrap()) = self.line_index;
+        utils::config::update_config(config);
     }
 
     fn line_down(&mut self) {
@@ -245,6 +273,7 @@ impl DirectoryWatcher {
 
     fn play_next(&mut self) {
         self.line_down();
+        crate::deprintln!("play_next");
         self.play_file()
     }
 
@@ -253,14 +282,24 @@ impl DirectoryWatcher {
     }
 
     pub fn autoplay(&mut self) {
+        {
+            let writable_lines = self.lines.read().unwrap();
+            if (*writable_lines).is_empty() {
+                return;
+            }
+        }
+
         // If dirplayer is not paused, bu no song is playing, play next song.
         let player_is_paused = self.paused;
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
         let song_is_ended = current_backend.state() == SongState::Ended;
+        crate::deprintln!("player_is_paused {}", player_is_paused);
+        crate::deprintln!("song_is_ended {}", song_is_ended);
 
         // // We are at the end of a song, play next one
         if !player_is_paused && song_is_ended {
+            crate::deprintln!("autoplaying next");
             self.play_next();
         }
     }
