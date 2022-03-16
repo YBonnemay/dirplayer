@@ -6,10 +6,13 @@ use crate::KeyModifiers;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::VecDeque;
 use std::fs;
+use std::io::Stdout;
 use std::path::Path;
 use std::path::PathBuf;
+use tui::backend::CrosstermBackend;
 use tui::layout::Constraint;
 use tui::text::{Span, Spans};
+use tui::Terminal;
 
 pub fn get_path_completions(path: &Path) -> Vec<String> {
     fs::read_dir(path)
@@ -99,15 +102,21 @@ impl<'a> App<'a> {
         }
     }
 
-    pub fn process_event(&mut self, key_code: KeyCode, key_modifiers: KeyModifiers) {
+    pub fn process_event(
+        &mut self,
+        key_code: KeyCode,
+        key_modifiers: KeyModifiers,
+        terminal: &Terminal<CrosstermBackend<Stdout>>,
+    ) {
         if key_modifiers == KeyModifiers::CONTROL {
             self.set_zone(&key_code);
         } else {
             match self.current_zone {
                 Zone::Directory => selector::process_event(self, key_code, key_modifiers),
-                Zone::Content => self
-                    .directory_watcher
-                    .process_event(key_code, key_modifiers),
+                Zone::Content => {
+                    self.directory_watcher
+                        .process_event(key_code, key_modifiers, terminal)
+                }
             }
         }
     }

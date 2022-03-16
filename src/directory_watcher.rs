@@ -8,15 +8,18 @@ use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use notify::{watcher, RecursiveMode, Watcher};
 use std::cmp;
+use std::io::Stdout;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
+use tui::backend::Backend;
+use tui::backend::CrosstermBackend;
 use tui::layout::Constraint;
 use tui::layout::{Layout, Rect};
 use tui::style::{Color, Style};
 use tui::widgets::{Cell, Row, Table, TableState};
-use tui::Frame;
+use tui::{Frame, Terminal};
 use walkdir::{DirEntry, WalkDir};
 
 #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -219,13 +222,26 @@ impl DirectoryWatcher {
         }
     }
 
-    pub fn process_event(&mut self, key_code: KeyCode, _: KeyModifiers) {
+    pub fn process_event(
+        &mut self,
+        key_code: KeyCode,
+        _: KeyModifiers,
+        terminal: &Terminal<CrosstermBackend<Stdout>>,
+    ) {
         match key_code {
-            KeyCode::Down => self.line_down(),
-            KeyCode::Up => self.line_up(),
+            KeyCode::Down => self.lines_down(1),
+            KeyCode::Up => self.lines_up(1),
             KeyCode::Enter => {
                 crate::deprintln!("Enter event");
                 self.play_file();
+            }
+            KeyCode::PageDown => {
+                let slice_size_half = terminal.backend().size().unwrap().height / 2;
+                self.lines_down(slice_size_half as i32)
+            }
+            KeyCode::PageUp => {
+                let slice_size_half = terminal.backend().size().unwrap().height / 2;
+                self.lines_up(slice_size_half as i32)
             }
             _ => (),
         }
@@ -259,26 +275,28 @@ impl DirectoryWatcher {
 
         let mut config = utils::config::get_config();
         let path = self.path.read().unwrap().clone();
-        *(config
+        crate::deprintln!("self.line_index {}", self.line_index);
+        let entry = config
             .working_directory_line_index
-            .get_mut(path.to_str().unwrap())
-            .unwrap()) = self.line_index;
+            .entry(String::from(path.to_str().unwrap()))
+            .or_insert(self.line_index);
+        *entry = self.line_index;
         utils::config::update_config(config);
     }
 
-    fn line_down(&mut self) {
+    fn lines_down(&mut self, line_number: i32) {
         let line_length: i32 = self.lines.read().unwrap().to_vec().len() as i32;
-        self.line_index = cmp::min(self.line_index + 1, line_length);
+        self.line_index = cmp::min(self.line_index + line_number, line_length);
+    }
+
+    fn lines_up(&mut self, line_number: i32) {
+        self.line_index = cmp::max(self.line_index - line_number, 0);
     }
 
     fn play_next(&mut self) {
-        self.line_down();
+        self.lines_down(1);
         crate::deprintln!("play_next");
         self.play_file()
-    }
-
-    fn line_up(&mut self) {
-        self.line_index = cmp::max(self.line_index - 1, 0);
     }
 
     pub fn autoplay(&mut self) {
@@ -294,10 +312,8 @@ impl DirectoryWatcher {
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
         let song_is_ended = current_backend.state() == SongState::Ended;
-        crate::deprintln!("player_is_paused {}", player_is_paused);
-        crate::deprintln!("song_is_ended {}", song_is_ended);
 
-        // // We are at the end of a song, play next one
+        // We are at the end of a song, play next one
         if !player_is_paused && song_is_ended {
             crate::deprintln!("autoplaying next");
             self.play_next();

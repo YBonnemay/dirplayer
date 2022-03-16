@@ -22,8 +22,11 @@ use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
-use tui::layout::{Constraint, Layout};
 use tui::Frame;
+use tui::{
+    backend::Backend,
+    layout::{Constraint, Layout},
+};
 use tui::{backend::CrosstermBackend, Terminal};
 
 enum Event<I> {
@@ -63,7 +66,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Clean!
     // TODO: filter directories
     // TODO: Debounce dig directories
-    // TODO: Page down, up
     // TODO: Autoplay after first
     // TODO: opus behind ff
 
@@ -107,6 +109,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         terminal.draw(|f| draw(f, &app))?;
+
         match rx.recv()? {
             Event::Input(event) => {
                 if event.modifiers == KeyModifiers::CONTROL
@@ -122,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // end
                     break;
                 } else {
-                    app.process_event(event.code, event.modifiers);
+                    app.process_event(event.code, event.modifiers, &terminal);
                 }
             }
             Event::Tick => {
