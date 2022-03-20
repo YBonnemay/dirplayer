@@ -4,6 +4,8 @@ use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
 use crate::utils;
 use chrono::{DateTime, Utc};
+use chrono::{Datelike, NaiveDate};
+use colorous;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use notify::{watcher, RecursiveMode, Watcher};
@@ -12,7 +14,7 @@ use std::io::Stdout;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 use tui::backend::Backend;
 use tui::backend::CrosstermBackend;
 use tui::layout::Constraint;
@@ -129,6 +131,28 @@ impl DirectoryWatcher {
         });
     }
 
+    pub fn date_to_color(created: SystemTime) -> (u8, u8, u8) {
+        // let current_date = chrono::DateTime::from(unix_time);
+        let current_date = chrono::DateTime::<Utc>::from(created);
+
+        let start_of_year: chrono::DateTime<Utc> = chrono::DateTime::from_utc(
+            NaiveDate::from_ymd(current_date.year(), 1, 1).and_hms(0, 0, 0),
+            Utc,
+        );
+
+        let end_of_year: chrono::DateTime<Utc> = chrono::DateTime::from_utc(
+            NaiveDate::from_ymd(current_date.year() + 1, 1, 1).and_hms(0, 0, 0),
+            Utc,
+        ) - chrono::Duration::microseconds(1);
+
+        let elapsed = current_date - start_of_year;
+        let total = end_of_year - start_of_year;
+        let ratio = elapsed.num_seconds() as f64 / total.num_seconds() as f64;
+
+        let gradient = colorous::RAINBOW;
+        gradient.eval_continuous(ratio as f64).as_tuple()
+    }
+
     pub fn draw_directory<B: tui::backend::Backend>(&self, f: &mut Frame<B>, chunk: Rect) {
         let lines = self.lines.read().unwrap().to_vec();
         let path = self.path.read().unwrap().clone();
@@ -192,9 +216,12 @@ impl DirectoryWatcher {
                     .unwrap()
                     .into();
 
+                let (r, g, b) = DirectoryWatcher::date_to_color(created);
+
                 let data = vec![
                     Cell::from(path),
-                    Cell::from(date_time.format("%Y-%m-%d %H-%M-%S").to_string()),
+                    Cell::from(date_time.format("%Y-%m-%d %H-%M-%S").to_string())
+                        .style(Style::default().fg(tui::style::Color::Rgb(r, g, b))),
                 ];
                 Row::new(data)
             })
@@ -202,7 +229,7 @@ impl DirectoryWatcher {
 
         let displayables = Table::new(list_items)
             .highlight_style(Style::default().bg(Color::Rgb(51, 51, 51)))
-            .widths(&[Constraint::Percentage(50), Constraint::Length(30)]);
+            .widths(&[Constraint::Percentage(80), Constraint::Length(30)]);
 
         let mut state = TableState::default();
         state.select(Some(slice_index as usize));
@@ -232,7 +259,6 @@ impl DirectoryWatcher {
             KeyCode::Down => self.lines_down(1),
             KeyCode::Up => self.lines_up(1),
             KeyCode::Enter => {
-                crate::deprintln!("Enter event");
                 self.play_file();
             }
             KeyCode::PageDown => {
@@ -259,23 +285,19 @@ impl DirectoryWatcher {
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
         if new_file == current_file {
-            crate::deprintln!("Toggle file {} ", new_file);
             current_backend.toggle();
             self.paused = current_backend.state() == SongState::Paused;
         } else {
             if current_backend.busy() {
-                crate::deprintln!("Stop backend");
                 current_backend.pause();
             }
             let new_backend = self.get_backend(&new_file);
-            crate::deprintln!("Start file {} ", new_file);
             new_backend.start(&new_file);
             self.current_file = new_file;
         }
 
         let mut config = utils::config::get_config();
         let path = self.path.read().unwrap().clone();
-        crate::deprintln!("self.line_index {}", self.line_index);
         let entry = config
             .working_directory_line_index
             .entry(String::from(path.to_str().unwrap()))
@@ -294,13 +316,25 @@ impl DirectoryWatcher {
     }
 
     fn play_next(&mut self) {
-        self.lines_down(1);
-        crate::deprintln!("play_next");
+        let index_moved;
+        {
+            let lines = self.lines.read().unwrap();
+            let file_name = &lines[self.line_index as usize];
+            let index_file = String::from(file_name.path().to_str().unwrap());
+            index_moved = index_file != self.current_file;
+        }
+
+        if !index_moved {
+            self.lines_down(1);
+        } else {
+        }
+
         self.play_file()
     }
 
     pub fn autoplay(&mut self) {
         {
+            // Do nothing if nothing in directory watcher.
             let writable_lines = self.lines.read().unwrap();
             if (*writable_lines).is_empty() {
                 return;
@@ -315,7 +349,6 @@ impl DirectoryWatcher {
 
         // We are at the end of a song, play next one
         if !player_is_paused && song_is_ended {
-            crate::deprintln!("autoplaying next");
             self.play_next();
         }
     }

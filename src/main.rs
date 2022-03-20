@@ -66,8 +66,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Clean!
     // TODO: filter directories
     // TODO: Debounce dig directories
-    // TODO: Autoplay after first
     // TODO: opus behind ff
+    // TODO: dates to the right
 
     let config = utils::config::get_set_config();
     let mut app = App::new();

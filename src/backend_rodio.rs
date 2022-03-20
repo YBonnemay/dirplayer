@@ -22,15 +22,12 @@ struct Event {
 
 pub struct Rodio {
     sender: crossbeam_channel::Sender<Event>,
-    busy: Arc<RwLock<bool>>,
     state: Arc<RwLock<SongState>>,
 }
 
 impl Rodio {
     pub fn new() -> Self {
         let (sender, receiver) = unbounded();
-        let busy = Arc::new(RwLock::new(false));
-        let busy_new = busy.clone();
         let state = Arc::new(RwLock::new(SongState::Ended));
         let state_new = state.clone();
         thread::spawn(move || -> ! {
@@ -44,9 +41,7 @@ impl Rodio {
                 };
                 match event.event_type {
                     EventType::Start => {
-                        *busy.write().unwrap() = true;
                         *state.write().unwrap() = SongState::Playing;
-
                         if !sink.empty() {
                             sink.stop();
                             sink = rodio::Sink::try_new(&stream_handle).unwrap();
@@ -70,7 +65,7 @@ impl Rodio {
                     }
                     EventType::Stop => {
                         sink.stop();
-                        *busy.write().unwrap() = false;
+                        *state.write().unwrap() = SongState::Ended;
                     }
                     EventType::Tick => {
                         // Housekeeping
@@ -85,7 +80,6 @@ impl Rodio {
 
         Self {
             sender,
-            busy: busy_new,
             state: state_new,
         }
     }
@@ -129,7 +123,7 @@ impl AudioBackend for Rodio {
     }
 
     fn busy(&self) -> bool {
-        return *self.busy.read().unwrap();
+        *self.state.read().unwrap() != SongState::Ended
     }
 
     fn state(&self) -> SongState {

@@ -22,3 +22,4 @@ chrono = "*"
 libmpv = { version = "2" }
 anyhow = "1.0"
 dirs = "4.0"
+colorous = "1.0.6"
