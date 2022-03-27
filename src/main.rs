@@ -12,7 +12,8 @@ use app::App;
 use crossbeam_channel::unbounded;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event as CEvent, KeyCode, KeyModifiers,
+        self, DisableMouseCapture, EnableMouseCapture, Event as CrossTermEvent, KeyCode,
+        KeyModifiers,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -34,7 +35,7 @@ enum Event<I> {
     Tick,
 }
 
-fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &App) {
+fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
     // let constraints = app.directory_selector.constraints;
     // let test = f.size();
     let chunks = Layout::default()
@@ -68,6 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Debounce dig directories
     // TODO: opus behind ff
     // TODO: dates to the right
+    // TODO: Way, way to many Strings
+    // TODO: when removing filter, keep index
+    // TODO: graceful stop
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
@@ -91,24 +95,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut last_tick = Instant::now();
         loop {
             let time_before_tick = tick_rate - last_tick.elapsed();
-
             if event::poll(time_before_tick).unwrap() {
-                if let CEvent::Key(key) = event::read().unwrap() {
-                    tx.send(Event::Input(key)).unwrap();
+                // CrossTermEvent happened (keyboard, mouse, resize)
+                match event::read().unwrap() {
+                    CrossTermEvent::Key(key) => {
+                        tx.send(Event::Input(key)).unwrap();
+                    }
+                    CrossTermEvent::Resize(_, _) => {
+                        tx.send(Event::Tick).unwrap();
+                    }
+                    _ => (),
                 }
             }
 
-            if time_before_tick > Duration::new(0, 0) {
+            // If here because event, we do nothing.
+            // If here because timeout, we send tick.
+            if last_tick.elapsed() >= time_before_tick {
                 tx.send(Event::Tick).unwrap();
-                last_tick = Instant::now();
             }
+            last_tick = Instant::now();
         }
     });
 
     terminal.clear()?;
 
     loop {
-        terminal.draw(|f| draw(f, &app))?;
+        terminal.draw(|f| draw(f, &mut app))?;
 
         match rx.recv()? {
             Event::Input(event) => {

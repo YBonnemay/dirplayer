@@ -85,16 +85,19 @@ impl<'a> App<'a> {
         match key {
             KeyCode::Up => {
                 if self.current_zone == Zone::Content {
-                    self.current_zone = Zone::Directory
+                    self.current_zone = Zone::Directory;
+                    let path = self.path.clone();
+                    selector::update_selector(self, &path);
                 }
             }
 
             KeyCode::Down => {
-                let path = self.path.clone();
-                selector::update_selector(self, &path);
-                self.update_directory_watcher(path);
                 if self.current_zone == Zone::Directory {
-                    self.current_zone = Zone::Content
+                    let path = self.path.clone();
+                    // selector::update_selector(self, &path);
+                    self.update_directory_watcher(path);
+                    self.current_zone = Zone::Content;
+                    self.directory_selector.completions = Vec::new();
                 }
             }
 
@@ -128,13 +131,18 @@ impl<'a> App<'a> {
 
         let mut config = utils::config::get_config();
         let new_path = String::from(path.to_str().unwrap());
+
         if !config.working_directories.contains(&new_path) {
             config.working_directories.push_front(new_path);
-            utils::config::update_config(config);
+        } else {
+            config.working_directories.retain(|e| e != &new_path);
+            config.working_directories.push_front(new_path);
         }
+        utils::config::update_config(config);
     }
 
     pub fn process_tick(&mut self) {
+        self.directory_watcher.update_lines_filtered();
         self.directory_watcher.autoplay();
     }
 }

@@ -8,9 +8,11 @@ use chrono::{Datelike, NaiveDate};
 use colorous;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use notify::{watcher, RecursiveMode, Watcher};
 use std::cmp;
-use std::io::Stdout;
+use std::io::{Read, Stdout};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -33,13 +35,16 @@ struct Line {
 pub struct DirectoryWatcher {
     pub _sender: crossbeam_channel::Sender<std::result::Result<notify::Event, notify::Error>>,
     pub current_file: String,
+    pub filter: String,
     pub line_index: i32,
     pub lines: Arc<RwLock<Vec<DirEntry>>>,
+    pub lines_filtered: Vec<DirEntry>,
+    pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
     pub mpv_client: Mpv,
-    pub paused: bool,
-    pub rodio_client: Rodio,
     pub path: Arc<RwLock<PathBuf>>,
+    pub paused: bool,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
+    pub rodio_client: Rodio,
     pub watcher: notify::INotifyWatcher,
 }
 
@@ -48,7 +53,6 @@ impl DirectoryWatcher {
         let (sender, receiver) = unbounded();
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
         let path = Arc::new(RwLock::new(PathBuf::default()));
-        // Watching directory.
 
         watcher
             .watch(PathBuf::default(), RecursiveMode::Recursive)
@@ -57,8 +61,11 @@ impl DirectoryWatcher {
         DirectoryWatcher {
             _sender: sender,
             current_file: String::default(),
+            filter: String::default(),
             line_index: 0,
             lines: Arc::new(RwLock::new(Vec::new())),
+            lines_filtered: Vec::new(),
+            matcher: SkimMatcherV2::default(),
             mpv_client: Mpv::default(),
             rodio_client: Rodio::new(),
             paused: false,
@@ -123,6 +130,7 @@ impl DirectoryWatcher {
         thread::spawn(move || loop {
             match receiver.recv() {
                 Ok(_event) => {
+                    crate::deprintln!("update_lines listen");
                     let unwrapped_path = path.read().unwrap();
                     DirectoryWatcher::update_lines(&unwrapped_path, &lines);
                 }
@@ -153,8 +161,9 @@ impl DirectoryWatcher {
         gradient.eval_continuous(ratio as f64).as_tuple()
     }
 
-    pub fn draw_directory<B: tui::backend::Backend>(&self, f: &mut Frame<B>, chunk: Rect) {
-        let lines = self.lines.read().unwrap().to_vec();
+    pub fn draw_directory<B: tui::backend::Backend>(&mut self, f: &mut Frame<B>, chunk: Rect) {
+        let lines = self.lines_filtered.clone();
+
         let path = self.path.read().unwrap().clone();
 
         // We only display a term-sized slice of the songs, centered on the current index.
@@ -269,13 +278,24 @@ impl DirectoryWatcher {
                 let slice_size_half = terminal.backend().size().unwrap().height / 2;
                 self.lines_up(slice_size_half as i32)
             }
+            KeyCode::Char(c) => {
+                crate::deprintln!("update_lines_filtered from char");
+                self.filter = format!("{}{}", self.filter, c);
+                self.update_lines_filtered();
+            }
+            KeyCode::Backspace => {
+                let mut chars = self.filter.chars();
+                chars.next_back();
+                self.filter = chars.as_str().to_string();
+                crate::deprintln!("update_lines_filtered from backspace");
+                self.update_lines_filtered();
+            }
             _ => (),
         }
     }
 
     fn play_file(&mut self) {
-        let lines = self.lines.clone();
-        let lines = lines.read().unwrap();
+        let lines = self.lines_filtered.clone();
         let lines_length = lines.len();
         if self.line_index + 1 > lines_length as i32 {
             return;
@@ -307,7 +327,7 @@ impl DirectoryWatcher {
     }
 
     fn lines_down(&mut self, line_number: i32) {
-        let line_length: i32 = self.lines.read().unwrap().to_vec().len() as i32;
+        let line_length: i32 = self.lines_filtered.len() as i32;
         self.line_index = cmp::min(self.line_index + line_number, line_length);
     }
 
@@ -318,7 +338,7 @@ impl DirectoryWatcher {
     fn play_next(&mut self) {
         let index_moved;
         {
-            let lines = self.lines.read().unwrap();
+            let lines = self.lines_filtered.clone();
             let file_name = &lines[self.line_index as usize];
             let index_file = String::from(file_name.path().to_str().unwrap());
             index_moved = index_file != self.current_file;
@@ -326,7 +346,6 @@ impl DirectoryWatcher {
 
         if !index_moved {
             self.lines_down(1);
-        } else {
         }
 
         self.play_file()
@@ -335,8 +354,8 @@ impl DirectoryWatcher {
     pub fn autoplay(&mut self) {
         {
             // Do nothing if nothing in directory watcher.
-            let writable_lines = self.lines.read().unwrap();
-            if (*writable_lines).is_empty() {
+            let readable_lines = self.lines_filtered.clone();
+            if (*readable_lines).is_empty() {
                 return;
             }
         }
@@ -351,5 +370,28 @@ impl DirectoryWatcher {
         if !player_is_paused && song_is_ended {
             self.play_next();
         }
+    }
+
+    pub fn update_lines_filtered(&mut self) {
+        let readable_lines = self.lines.read().unwrap();
+        let lines: Vec<DirEntry> = Vec::default();
+
+        self.lines_filtered = (*readable_lines).iter().fold(lines, |mut acc, e| {
+            if self.filter.is_empty() {
+                acc.push(e.to_owned());
+                return acc;
+            }
+
+            if let Some((score, indices)) = self.matcher.fuzzy_indices(
+                e.file_name().to_os_string().into_string().unwrap().as_ref(),
+                &self.filter,
+            ) {
+                if score > 0 {
+                    acc.push(e.to_owned());
+                }
+            }
+
+            acc
+        });
     }
 }
