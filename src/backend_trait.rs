@@ -8,4 +8,5 @@ pub trait AudioBackend {
     fn busy(&self) -> bool;
     fn state(&self) -> SongState;
     fn toggle(&mut self);
+    fn file_name(&self) -> String;
 }

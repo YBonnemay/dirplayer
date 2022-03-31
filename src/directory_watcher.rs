@@ -26,10 +26,11 @@ use tui::widgets::{Cell, Row, Table, TableState};
 use tui::{Frame, Terminal};
 use walkdir::{DirEntry, WalkDir};
 
-#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Line {
-    file_name: String,
-    date_time: DateTime<Utc>,
+// #[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(std::clone::Clone)]
+pub struct Line {
+    dir_entry: DirEntry,
+    spans: Vec<usize>,
 }
 
 pub struct DirectoryWatcher {
@@ -38,7 +39,7 @@ pub struct DirectoryWatcher {
     pub filter: String,
     pub line_index: i32,
     pub lines: Arc<RwLock<Vec<DirEntry>>>,
-    pub lines_filtered: Vec<DirEntry>,
+    pub lines_filtered: Vec<Line>,
     pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
     pub mpv_client: Mpv,
     pub path: Arc<RwLock<PathBuf>>,
@@ -163,7 +164,6 @@ impl DirectoryWatcher {
 
     pub fn draw_directory<B: tui::backend::Backend>(&mut self, f: &mut Frame<B>, chunk: Rect) {
         let lines = self.lines_filtered.clone();
-
         let path = self.path.read().unwrap().clone();
 
         // We only display a term-sized slice of the songs, centered on the current index.
@@ -211,13 +211,15 @@ impl DirectoryWatcher {
         let list_items =
             &lines[slice_free_index_high_border as usize..slice_free_index_low_border as usize];
 
+        // TODO No such file or directory here on file remove
         let list_items: Vec<Row> = list_items
             .iter()
             .map(|e| {
-                let created = e.metadata().unwrap().created().unwrap();
+                let created = e.dir_entry.metadata().unwrap().created().unwrap();
                 let date_time = DateTime::<Utc>::from(created);
                 let path: String = e
                     .clone()
+                    .dir_entry
                     .into_path()
                     .strip_prefix(&path)
                     .unwrap()
@@ -225,10 +227,12 @@ impl DirectoryWatcher {
                     .unwrap()
                     .into();
 
+                let spans = e.spans.clone();
+                let spans = crate::selector::string_to_styled_text(path, spans);
                 let (r, g, b) = DirectoryWatcher::date_to_color(created);
 
                 let data = vec![
-                    Cell::from(path),
+                    Cell::from(spans),
                     Cell::from(date_time.format("%Y-%m-%d %H-%M-%S").to_string())
                         .style(Style::default().fg(tui::style::Color::Rgb(r, g, b))),
                 ];
@@ -279,7 +283,6 @@ impl DirectoryWatcher {
                 self.lines_up(slice_size_half as i32)
             }
             KeyCode::Char(c) => {
-                crate::deprintln!("update_lines_filtered from char");
                 self.filter = format!("{}{}", self.filter, c);
                 self.update_lines_filtered();
             }
@@ -287,7 +290,6 @@ impl DirectoryWatcher {
                 let mut chars = self.filter.chars();
                 chars.next_back();
                 self.filter = chars.as_str().to_string();
-                crate::deprintln!("update_lines_filtered from backspace");
                 self.update_lines_filtered();
             }
             _ => (),
@@ -301,10 +303,10 @@ impl DirectoryWatcher {
             return;
         }
         let file_name = &lines[self.line_index as usize];
-        let new_file = String::from(file_name.path().to_str().unwrap());
+        let new_file = String::from(file_name.dir_entry.path().to_str().unwrap());
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
-        if new_file == current_file {
+        if new_file == *current_file {
             current_backend.toggle();
             self.paused = current_backend.state() == SongState::Paused;
         } else {
@@ -340,7 +342,7 @@ impl DirectoryWatcher {
         {
             let lines = self.lines_filtered.clone();
             let file_name = &lines[self.line_index as usize];
-            let index_file = String::from(file_name.path().to_str().unwrap());
+            let index_file = String::from(file_name.dir_entry.path().to_str().unwrap());
             index_moved = index_file != self.current_file;
         }
 
@@ -374,20 +376,25 @@ impl DirectoryWatcher {
 
     pub fn update_lines_filtered(&mut self) {
         let readable_lines = self.lines.read().unwrap();
-        let lines: Vec<DirEntry> = Vec::default();
+        let lines: Vec<Line> = Vec::default();
 
         self.lines_filtered = (*readable_lines).iter().fold(lines, |mut acc, e| {
             if self.filter.is_empty() {
-                acc.push(e.to_owned());
+                acc.push(Line {
+                    dir_entry: e.to_owned(),
+                    spans: vec![],
+                });
                 return acc;
             }
+            let path = self.path.read().unwrap().clone();
+            let test = e.path().strip_prefix(&path).unwrap().to_str().unwrap();
 
-            if let Some((score, indices)) = self.matcher.fuzzy_indices(
-                e.file_name().to_os_string().into_string().unwrap().as_ref(),
-                &self.filter,
-            ) {
-                if score > 0 {
-                    acc.push(e.to_owned());
+            if let Some((score, indices)) = self.matcher.fuzzy_indices(test, &self.filter) {
+                if score > 64 {
+                    acc.push(Line {
+                        dir_entry: e.to_owned(),
+                        spans: indices,
+                    });
                 }
             }
 

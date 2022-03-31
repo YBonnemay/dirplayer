@@ -23,6 +23,7 @@ struct Event {
 pub struct Rodio {
     sender: crossbeam_channel::Sender<Event>,
     state: Arc<RwLock<SongState>>,
+    file_name: Arc<RwLock<String>>,
 }
 
 impl Rodio {
@@ -30,6 +31,10 @@ impl Rodio {
         let (sender, receiver) = unbounded();
         let state = Arc::new(RwLock::new(SongState::Ended));
         let state_new = state.clone();
+
+        let file_name = Arc::new(RwLock::new(String::default()));
+        let file_name_new = file_name.clone();
+
         thread::spawn(move || -> ! {
             let (_stream, stream_handle) = OutputStream::try_default().unwrap();
             let mut sink = rodio::Sink::try_new(&stream_handle).unwrap();
@@ -46,7 +51,7 @@ impl Rodio {
                             sink.stop();
                             sink = rodio::Sink::try_new(&stream_handle).unwrap();
                         }
-                        let source = BufReader::new(File::open(event.file_name).unwrap());
+                        let source = BufReader::new(File::open(event.file_name.clone()).unwrap());
                         match Decoder::new(source) {
                             Ok(decoder) => {
                                 sink.append(decoder);
@@ -54,6 +59,7 @@ impl Rodio {
                             }
                             Err(e) => print!("{}", e),
                         }
+                        *file_name.write().unwrap() = event.file_name;
                     }
                     EventType::Play => {
                         sink.play();
@@ -81,6 +87,7 @@ impl Rodio {
         Self {
             sender,
             state: state_new,
+            file_name: file_name_new,
         }
     }
 }
@@ -143,6 +150,11 @@ impl AudioBackend for Rodio {
             SongState::Playing => self.pause(),
             SongState::Ended => {}
         }
+    }
+
+    fn file_name(&self) -> String {
+        let test = self.file_name.read().unwrap();
+        (&*test).to_string()
     }
 }
 

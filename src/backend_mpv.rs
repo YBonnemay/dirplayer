@@ -8,6 +8,7 @@ use libmpv::Mpv as MpvBackend;
 
 pub struct Mpv {
     player: MpvBackend,
+    file_name: String,
 }
 
 impl Default for Mpv {
@@ -15,16 +16,20 @@ impl Default for Mpv {
         let mpv = MpvBackend::new().expect("Couldn't initialize MpvHandlerBuilder");
         mpv.set_property("vo", "null")
             .expect("Couldn't set vo=null in libmpv");
-        Self { player: mpv }
+        Self {
+            player: mpv,
+            file_name: String::default(),
+        }
     }
 }
 
 impl AudioBackend for Mpv {
     fn stop(&mut self) {
-        // TODO
+        // TODO, maybe?
     }
 
     fn start(&mut self, new: &str) {
+        self.file_name = String::from(new);
         self.player
             .command("loadfile", &[&format!("\"{}\"", new), "replace"])
             .expect("Error loading file");
@@ -70,6 +75,10 @@ impl AudioBackend for Mpv {
         } else {
             self.pause();
         }
+    }
+
+    fn file_name(&self) -> String {
+        self.file_name.clone()
     }
 }
 

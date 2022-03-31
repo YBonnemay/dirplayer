@@ -72,6 +72,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: Way, way to many Strings
     // TODO: when removing filter, keep index
     // TODO: graceful stop
+    // TODO: during filtering : if index in filtered, stay on index. Else go to start.
+    // TODO: logging window
+    // TODO: better filter diacritics. Better filter algo too.
+    // TODO: wait before replay
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
