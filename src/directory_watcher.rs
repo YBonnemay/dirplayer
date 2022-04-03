@@ -2,7 +2,7 @@ use crate::backend_mpv::Mpv;
 use crate::backend_rodio::Rodio;
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
-use crate::utils;
+use crate::{deprintln, utils};
 use chrono::{DateTime, Utc};
 use chrono::{Datelike, NaiveDate};
 use colorous;
@@ -375,30 +375,50 @@ impl DirectoryWatcher {
     }
 
     pub fn update_lines_filtered(&mut self) {
-        let readable_lines = self.lines.read().unwrap();
-        let lines: Vec<Line> = Vec::default();
+        {
+            let readable_lines = self.lines.read().unwrap();
+            let lines: Vec<Line> = Vec::default();
 
-        self.lines_filtered = (*readable_lines).iter().fold(lines, |mut acc, e| {
-            if self.filter.is_empty() {
-                acc.push(Line {
-                    dir_entry: e.to_owned(),
-                    spans: vec![],
-                });
-                return acc;
-            }
-            let path = self.path.read().unwrap().clone();
-            let test = e.path().strip_prefix(&path).unwrap().to_str().unwrap();
-
-            if let Some((score, indices)) = self.matcher.fuzzy_indices(test, &self.filter) {
-                if score > 64 {
+            self.lines_filtered = vec![];
+            self.lines_filtered = (*readable_lines).iter().fold(lines, |mut acc, e| {
+                if self.filter.is_empty() {
                     acc.push(Line {
                         dir_entry: e.to_owned(),
-                        spans: indices,
+                        spans: vec![],
                     });
+                    return acc;
                 }
-            }
+                let path = self.path.read().unwrap().clone();
+                let test = e.path().strip_prefix(&path).unwrap().to_str().unwrap();
 
-            acc
-        });
+                if let Some((score, indices)) = self.matcher.fuzzy_indices(test, &self.filter) {
+                    if score > 64 {
+                        acc.push(Line {
+                            dir_entry: e.to_owned(),
+                            spans: indices,
+                        });
+                    }
+                }
+
+                acc
+            });
+        }
+
+        let current_file = self.current_file.clone();
+        let current_backend = self.get_backend(&current_file);
+        let file_name = current_backend.file_name();
+
+        if current_file != String::default() {
+            // Get index in filtered list
+            if let Some(current_index) = self
+                .lines_filtered
+                .iter()
+                .position(|line| line.dir_entry.path().to_str().unwrap() == file_name)
+            {
+                self.line_index = current_index as i32;
+            } else {
+                self.line_index = 0;
+            }
+        }
     }
 }

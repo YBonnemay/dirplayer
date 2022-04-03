@@ -128,6 +128,7 @@ impl<'a> App<'a> {
         let lines = self.directory_watcher.lines.clone();
         self.directory_watcher.update_path(path.clone());
         DirectoryWatcher::update_lines(&path, &lines);
+        self.directory_watcher.update_lines_filtered();
 
         let mut config = utils::config::get_config();
         let new_path = String::from(path.to_str().unwrap());
@@ -142,7 +143,6 @@ impl<'a> App<'a> {
     }
 
     pub fn process_tick(&mut self) {
-        self.directory_watcher.update_lines_filtered();
         self.directory_watcher.autoplay();
     }
 }
