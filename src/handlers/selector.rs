@@ -10,11 +10,12 @@ use tui::style::{Color, Modifier, Style};
 use tui::text::{Span, Spans};
 use tui::widgets::Tabs;
 
-pub fn string_to_styled_text(raw_string: String, mut indices: Vec<usize>) -> Spans<'static> {
+pub fn string_to_styled_text(raw_string: &str, indices: &[usize]) -> Spans<'static> {
     let bold_style = Style::default()
         .fg(Color::Green)
         .add_modifier(Modifier::BOLD);
     let mut spans = vec![];
+    let mut indices = indices.to_owned();
 
     for (i, c) in raw_string.chars().enumerate() {
         if !indices.is_empty() && i == indices[0] {
@@ -38,7 +39,7 @@ pub fn get_displayable_completions<'a>(app: &App) -> VecDeque<Spans<'a>> {
         .cloned()
         .fold(texts, |mut acc, e| {
             if app.directory_selector.filter.is_empty() {
-                let spans = string_to_styled_text(e, vec![]);
+                let spans = string_to_styled_text(&e, &[]);
                 acc.push_back(spans);
                 return acc;
             }
@@ -49,7 +50,7 @@ pub fn get_displayable_completions<'a>(app: &App) -> VecDeque<Spans<'a>> {
                 .fuzzy_indices(&e, &app.directory_selector.filter)
             {
                 if score > 0 {
-                    let spans = string_to_styled_text(e, indices);
+                    let spans = string_to_styled_text(&e, &indices);
                     acc.push_back(spans);
                 }
             }

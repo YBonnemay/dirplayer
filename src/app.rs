@@ -86,16 +86,13 @@ impl<'a> App<'a> {
             KeyCode::Up => {
                 if self.current_zone == Zone::Content {
                     self.current_zone = Zone::Directory;
-                    let path = self.path.clone();
-                    selector::update_selector(self, &path);
+                    selector::update_selector(self, &self.path.clone());
                 }
             }
 
             KeyCode::Down => {
                 if self.current_zone == Zone::Directory {
-                    let path = self.path.clone();
-                    // selector::update_selector(self, &path);
-                    self.update_directory_watcher(path);
+                    self.update_directory_watcher();
                     self.current_zone = Zone::Content;
                     self.directory_selector.completions = Vec::new();
                 }
@@ -124,10 +121,10 @@ impl<'a> App<'a> {
         }
     }
 
-    fn update_directory_watcher(&mut self, path: PathBuf) {
-        let lines = self.directory_watcher.lines.clone();
-        self.directory_watcher.update_path(path.clone());
-        DirectoryWatcher::update_lines(&path, &lines);
+    fn update_directory_watcher(&mut self) {
+        let path = &self.path;
+        self.directory_watcher.update_path(path);
+        self.directory_watcher.update_lines();
         self.directory_watcher.update_lines_filtered();
 
         let mut config = utils::config::get_config();

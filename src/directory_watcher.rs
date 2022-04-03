@@ -5,14 +5,13 @@ use crate::constants::SongState;
 use crate::{deprintln, utils};
 use chrono::{DateTime, Utc};
 use chrono::{Datelike, NaiveDate};
-use colorous;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use notify::{watcher, RecursiveMode, Watcher};
 use std::cmp;
-use std::io::{Read, Stdout};
+use std::io::Stdout;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -76,8 +75,8 @@ impl DirectoryWatcher {
         }
     }
 
-    pub fn update_lines(path: &Path, lines: &Arc<RwLock<Vec<DirEntry>>>) {
-        // Update index
+    pub fn update_lines(&mut self) {
+        let path = self.path.read().unwrap().clone();
         let mut new_lines = WalkDir::new(path)
             .into_iter()
             .filter(|e| {
@@ -93,20 +92,20 @@ impl DirectoryWatcher {
             creation_b.partial_cmp(&creation_a).unwrap()
         });
 
-        let mut writable_lines = lines.write().unwrap();
-        *writable_lines = new_lines;
+        let mut lines = self.lines.write().unwrap();
+        *lines = new_lines;
     }
 
-    pub fn update_path(&mut self, new_path: PathBuf) {
+    pub fn update_path(&mut self, new_path: &Path) {
         let path = self.path.clone();
         let unwrapped_path = path.read().unwrap().clone();
         self.watcher.unwatch(unwrapped_path).unwrap();
         self.watcher
-            .watch(new_path.clone(), RecursiveMode::Recursive)
+            .watch(new_path, RecursiveMode::Recursive)
             .unwrap();
-        let path = self.path.clone();
+
         let mut unwrapped_path = path.write().unwrap();
-        *unwrapped_path = new_path.clone();
+        *unwrapped_path = new_path.to_path_buf();
 
         // Get current index from config, else 0
         let config = utils::config::get_config();
@@ -121,7 +120,7 @@ impl DirectoryWatcher {
     }
 
     pub fn listen(&mut self, path: PathBuf) {
-        self.update_path(path);
+        self.update_path(&path);
 
         let receiver = self.receiver.clone();
         let lines = self.lines.clone();
@@ -131,9 +130,9 @@ impl DirectoryWatcher {
         thread::spawn(move || loop {
             match receiver.recv() {
                 Ok(_event) => {
-                    crate::deprintln!("update_lines listen");
-                    let unwrapped_path = path.read().unwrap();
-                    DirectoryWatcher::update_lines(&unwrapped_path, &lines);
+                    // let unwrapped_path = path.read().unwrap();
+                    // TODO : update lines
+                    // DirectoryWatcher::update_lines();
                 }
                 Err(e) => println!("watch error: {:?}", e),
             };
@@ -163,8 +162,7 @@ impl DirectoryWatcher {
     }
 
     pub fn draw_directory<B: tui::backend::Backend>(&mut self, f: &mut Frame<B>, chunk: Rect) {
-        let lines = self.lines_filtered.clone();
-        let path = self.path.read().unwrap().clone();
+        let lines = &self.lines_filtered;
 
         // We only display a term-sized slice of the songs, centered on the current index.
         // This silly dance to ensure table scales with many songs.
@@ -211,23 +209,24 @@ impl DirectoryWatcher {
         let list_items =
             &lines[slice_free_index_high_border as usize..slice_free_index_low_border as usize];
 
+        let path = self.path.read().unwrap();
+
+        // #![feature]` may not be used on the stable release channel
         // TODO No such file or directory here on file remove
         let list_items: Vec<Row> = list_items
             .iter()
             .map(|e| {
-                let created = e.dir_entry.metadata().unwrap().created().unwrap();
+                let Line { dir_entry, spans } = e;
+                let created = dir_entry.metadata().unwrap().created().unwrap();
                 let date_time = DateTime::<Utc>::from(created);
-                let path: String = e
-                    .clone()
-                    .dir_entry
-                    .into_path()
-                    .strip_prefix(&path)
+                let dir_entry_path = dir_entry.path();
+
+                let path: &str = dir_entry_path
+                    .strip_prefix(&*path)
                     .unwrap()
                     .to_str()
-                    .unwrap()
-                    .into();
+                    .unwrap();
 
-                let spans = e.spans.clone();
                 let spans = crate::selector::string_to_styled_text(path, spans);
                 let (r, g, b) = DirectoryWatcher::date_to_color(created);
 
@@ -297,7 +296,7 @@ impl DirectoryWatcher {
     }
 
     fn play_file(&mut self) {
-        let lines = self.lines_filtered.clone();
+        let lines = &self.lines_filtered;
         let lines_length = lines.len();
         if self.line_index + 1 > lines_length as i32 {
             return;
@@ -319,7 +318,7 @@ impl DirectoryWatcher {
         }
 
         let mut config = utils::config::get_config();
-        let path = self.path.read().unwrap().clone();
+        let path = self.path.read().unwrap();
         let entry = config
             .working_directory_line_index
             .entry(String::from(path.to_str().unwrap()))
@@ -340,7 +339,7 @@ impl DirectoryWatcher {
     fn play_next(&mut self) {
         let index_moved;
         {
-            let lines = self.lines_filtered.clone();
+            let lines = &self.lines_filtered;
             let file_name = &lines[self.line_index as usize];
             let index_file = String::from(file_name.dir_entry.path().to_str().unwrap());
             index_moved = index_file != self.current_file;
@@ -354,12 +353,10 @@ impl DirectoryWatcher {
     }
 
     pub fn autoplay(&mut self) {
-        {
-            // Do nothing if nothing in directory watcher.
-            let readable_lines = self.lines_filtered.clone();
-            if (*readable_lines).is_empty() {
-                return;
-            }
+        // Do nothing if nothing in directory watcher.
+        let readable_lines = &self.lines_filtered;
+        if (*readable_lines).is_empty() {
+            return;
         }
 
         // If dirplayer is not paused, bu no song is playing, play next song.
@@ -388,11 +385,12 @@ impl DirectoryWatcher {
                     });
                     return acc;
                 }
-                let path = self.path.read().unwrap().clone();
-                let test = e.path().strip_prefix(&path).unwrap().to_str().unwrap();
+
+                let path = self.path.read().unwrap();
+                let test = e.path().strip_prefix(&*path).unwrap().to_str().unwrap();
 
                 if let Some((score, indices)) = self.matcher.fuzzy_indices(test, &self.filter) {
-                    if score > 64 {
+                    if score > 32 {
                         acc.push(Line {
                             dir_entry: e.to_owned(),
                             spans: indices,
@@ -408,7 +406,7 @@ impl DirectoryWatcher {
         let current_backend = self.get_backend(&current_file);
         let file_name = current_backend.file_name();
 
-        if current_file != String::default() {
+        if *current_file != String::default() {
             // Get index in filtered list
             if let Some(current_index) = self
                 .lines_filtered

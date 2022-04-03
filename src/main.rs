@@ -23,11 +23,8 @@ use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
+use tui::layout::{Constraint, Layout};
 use tui::Frame;
-use tui::{
-    backend::Backend,
-    layout::{Constraint, Layout},
-};
 use tui::{backend::CrosstermBackend, Terminal};
 
 enum Event<I> {
