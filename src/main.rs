@@ -23,13 +23,14 @@ use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
-use tui::layout::{Constraint, Layout};
+use tui::layout::{Constraint, Direction, Layout};
 use tui::Frame;
 use tui::{backend::CrosstermBackend, Terminal};
 
 enum Event<I> {
     Input(I),
     Tick,
+    DirectoryUpdate,
 }
 
 fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
@@ -62,17 +63,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: two path : one watcher, one app -> clean that
     // TODO: handler selector confusing when watcher is an object. Clean.
     // TODO: Clean!
-    // TODO: filter directories
-    // TODO: Debounce dig directories
     // TODO: opus behind ff
     // TODO: dates to the right
     // TODO: Way, way to many Strings
-    // TODO: when removing filter, keep index
     // TODO: graceful stop
     // TODO: during filtering : if index in filtered, stay on index. Else go to start.
     // TODO: logging window
     // TODO: better filter diacritics. Better filter algo too.
     // TODO: wait before replay
+    // TODO: fix bug autoplay after pause on m4a
+    // -> watcher fails because stuck with path defauilt. Switch to reasonable default.
+    // https://docs.rs/dirs/latest/dirs/fn.audio_dir.html
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
@@ -143,6 +144,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Event::Tick => {
                 app.process_tick();
+            }
+            Event::DirectoryUpdate => {
+                // TODO
             }
         }
     }

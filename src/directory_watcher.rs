@@ -2,7 +2,7 @@ use crate::backend_mpv::Mpv;
 use crate::backend_rodio::Rodio;
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
-use crate::{deprintln, utils};
+use crate::utils;
 use chrono::{DateTime, Utc};
 use chrono::{Datelike, NaiveDate};
 use crossbeam_channel::unbounded;
@@ -45,6 +45,7 @@ pub struct DirectoryWatcher {
     pub paused: bool,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
     pub rodio_client: Rodio,
+    pub dir_changed: Arc<RwLock<bool>>,
     pub watcher: notify::INotifyWatcher,
 }
 
@@ -52,10 +53,12 @@ impl DirectoryWatcher {
     pub fn new() -> DirectoryWatcher {
         let (sender, receiver) = unbounded();
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
-        let path = Arc::new(RwLock::new(PathBuf::default()));
+
+        let config = utils::config::get_config();
+        let default_path = config.working_directories[0].clone();
 
         watcher
-            .watch(PathBuf::default(), RecursiveMode::Recursive)
+            .watch(default_path.clone(), RecursiveMode::Recursive)
             .unwrap();
 
         DirectoryWatcher {
@@ -68,9 +71,10 @@ impl DirectoryWatcher {
             matcher: SkimMatcherV2::default(),
             mpv_client: Mpv::default(),
             rodio_client: Rodio::new(),
+            path: Arc::new(RwLock::new(PathBuf::from(default_path))),
             paused: false,
-            path,
             receiver,
+            dir_changed: Arc::new(RwLock::new(false)),
             watcher,
         }
     }
@@ -79,9 +83,9 @@ impl DirectoryWatcher {
         let path = self.path.read().unwrap().clone();
         let mut new_lines = WalkDir::new(path)
             .into_iter()
-            .filter(|e| {
-                let dir = e.as_ref().unwrap();
-                dir.file_type().is_file()
+            .filter(|e| match e.as_ref() {
+                Ok(dir) => dir.file_type().is_file(),
+                Err(_e) => false,
             })
             .map(|e| e.unwrap())
             .collect::<Vec<DirEntry>>();
@@ -103,7 +107,6 @@ impl DirectoryWatcher {
         self.watcher
             .watch(new_path, RecursiveMode::Recursive)
             .unwrap();
-
         let mut unwrapped_path = path.write().unwrap();
         *unwrapped_path = new_path.to_path_buf();
 
@@ -119,20 +122,15 @@ impl DirectoryWatcher {
         }
     }
 
-    pub fn listen(&mut self, path: PathBuf) {
-        self.update_path(&path);
-
+    pub fn listen_start(&mut self) {
         let receiver = self.receiver.clone();
-        let lines = self.lines.clone();
-        let path = self.path.clone();
-
-        // Wait here for changes directory changes
+        let dir_changed = self.dir_changed.clone();
+        // Wait here for directory changes
         thread::spawn(move || loop {
             match receiver.recv() {
                 Ok(_event) => {
-                    // let unwrapped_path = path.read().unwrap();
-                    // TODO : update lines
-                    // DirectoryWatcher::update_lines();
+                    let mut dir_changed = dir_changed.write().unwrap();
+                    *dir_changed = true;
                 }
                 Err(e) => println!("watch error: {:?}", e),
             };
@@ -140,7 +138,6 @@ impl DirectoryWatcher {
     }
 
     pub fn date_to_color(created: SystemTime) -> (u8, u8, u8) {
-        // let current_date = chrono::DateTime::from(unix_time);
         let current_date = chrono::DateTime::<Utc>::from(created);
 
         let start_of_year: chrono::DateTime<Utc> = chrono::DateTime::from_utc(
@@ -215,8 +212,13 @@ impl DirectoryWatcher {
         // TODO No such file or directory here on file remove
         let list_items: Vec<Row> = list_items
             .iter()
-            .map(|e| {
+            .filter_map(|e| {
                 let Line { dir_entry, spans } = e;
+                let metadata = dir_entry.metadata();
+                if metadata.is_err() {
+                    return None;
+                }
+
                 let created = dir_entry.metadata().unwrap().created().unwrap();
                 let date_time = DateTime::<Utc>::from(created);
                 let dir_entry_path = dir_entry.path();
@@ -235,7 +237,7 @@ impl DirectoryWatcher {
                     Cell::from(date_time.format("%Y-%m-%d %H-%M-%S").to_string())
                         .style(Style::default().fg(tui::style::Color::Rgb(r, g, b))),
                 ];
-                Row::new(data)
+                Some(Row::new(data))
             })
             .collect();
 

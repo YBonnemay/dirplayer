@@ -67,7 +67,7 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     pub fn new() -> App<'a> {
         let mut app = App::default();
-        app.directory_watcher.listen(PathBuf::default());
+        app.directory_watcher.listen_start();
         app
     }
 
@@ -140,6 +140,14 @@ impl<'a> App<'a> {
     }
 
     pub fn process_tick(&mut self) {
+        // move that to directory_watcher
+        let dir_changed = self.directory_watcher.dir_changed.clone();
+        let mut dir_changed = dir_changed.write().unwrap();
+        if *dir_changed {
+            *dir_changed = false;
+            self.directory_watcher.update_lines();
+            self.directory_watcher.update_lines_filtered();
+        }
         self.directory_watcher.autoplay();
     }
 }
