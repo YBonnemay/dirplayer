@@ -30,7 +30,6 @@ use tui::{backend::CrosstermBackend, Terminal};
 enum Event<I> {
     Input(I),
     Tick,
-    DirectoryUpdate,
 }
 
 fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {

@@ -42,7 +42,6 @@ pub struct DirectoryWatcher {
     pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
     pub mpv_client: Mpv,
     pub path: Arc<RwLock<PathBuf>>,
-    pub paused: bool,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
     pub rodio_client: Rodio,
     pub dir_changed: Arc<RwLock<bool>>,
@@ -72,7 +71,6 @@ impl DirectoryWatcher {
             mpv_client: Mpv::default(),
             rodio_client: Rodio::new(),
             path: Arc::new(RwLock::new(PathBuf::from(default_path))),
-            paused: false,
             receiver,
             dir_changed: Arc::new(RwLock::new(false)),
             watcher,
@@ -309,7 +307,6 @@ impl DirectoryWatcher {
         let current_backend = self.get_backend(&current_file);
         if new_file == *current_file {
             current_backend.toggle();
-            self.paused = current_backend.state() == SongState::Paused;
         } else {
             if current_backend.busy() {
                 current_backend.pause();
@@ -362,9 +359,9 @@ impl DirectoryWatcher {
         }
 
         // If dirplayer is not paused, bu no song is playing, play next song.
-        let player_is_paused = self.paused;
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
+        let player_is_paused = current_backend.state() == SongState::Paused;
         let song_is_ended = current_backend.state() == SongState::Ended;
 
         // We are at the end of a song, play next one
