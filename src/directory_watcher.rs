@@ -227,7 +227,7 @@ impl DirectoryWatcher {
                     .to_str()
                     .unwrap();
 
-                let spans = crate::selector::string_to_styled_text(path, spans);
+                let spans = utils::style::string_to_styled_text(path, spans);
                 let (r, g, b) = DirectoryWatcher::date_to_color(created);
 
                 let data = vec![

@@ -3,11 +3,10 @@ mod backend_mpv;
 mod backend_rodio;
 pub mod backend_trait;
 mod constants;
+mod directory_selector;
 mod directory_watcher;
-mod handlers;
 mod utils;
 
-use crate::handlers::selector;
 use app::App;
 use crossbeam_channel::unbounded;
 use crossterm::{
@@ -30,16 +29,18 @@ use tui::{backend::CrosstermBackend, Terminal};
 enum Event<I> {
     Input(I),
     Tick,
+    DirectoryUpdate,
 }
 
+// fn draw<'a, B: tui::backend::Backend>(f: &mut Frame<B>, app: &'a mut App<'a>) {
 fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
     // let constraints = app.directory_selector.constraints;
     // let test = f.size();
     let chunks = Layout::default()
         .constraints(vec![Constraint::Length(1), Constraint::Percentage(100)])
         .split(f.size());
-
-    let displayable_directories = handlers::selector::get_displayable(app);
+    let path = app.path.clone();
+    let displayable_directories = app.directory_selector.get_displayable(path);
     f.render_widget(displayable_directories, chunks[0]);
     app.directory_watcher.draw_directory(f, chunks[1]);
 }
@@ -59,26 +60,19 @@ pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: two path : one watcher, one app -> clean that
-    // TODO: handler selector confusing when watcher is an object. Clean.
     // TODO: Clean!
     // TODO: opus behind ff
-    // TODO: dates to the right
     // TODO: Way, way to many Strings
     // TODO: graceful stop
     // TODO: during filtering : if index in filtered, stay on index. Else go to start.
     // TODO: logging window
     // TODO: better filter diacritics. Better filter algo too.
     // TODO: wait before replay
-    // TODO: fix bug autoplay after pause on m4a
-    // -> watcher fails because stuck with path defauilt. Switch to reasonable default.
-    // https://docs.rs/dirs/latest/dirs/fn.audio_dir.html
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
     let path = PathBuf::from(config.working_directories.front().unwrap());
-
-    selector::update_selector(&mut app, &path);
+    app.directory_selector.update_selector(&path);
     enable_raw_mode()?; // crossterm terminal setup
     let mut stdout = stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?; // crossterm event setup
@@ -122,7 +116,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         terminal.draw(|f| draw(f, &mut app))?;
-
         match rx.recv()? {
             Event::Input(event) => {
                 if event.modifiers == KeyModifiers::CONTROL

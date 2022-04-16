@@ -1,17 +1,13 @@
+use crate::directory_selector::DirectorySelector;
 use crate::directory_watcher::DirectoryWatcher;
-use crate::handlers::selector;
 use crate::utils;
 use crate::KeyCode;
 use crate::KeyModifiers;
-use fuzzy_matcher::skim::SkimMatcherV2;
-use std::collections::VecDeque;
 use std::fs;
 use std::io::Stdout;
 use std::path::Path;
 use std::path::PathBuf;
 use tui::backend::CrosstermBackend;
-use tui::layout::Constraint;
-use tui::text::{Span, Spans};
 use tui::Terminal;
 
 pub fn get_path_completions(path: &Path) -> Vec<String> {
@@ -26,35 +22,6 @@ pub fn get_path_completions(path: &Path) -> Vec<String> {
 pub enum Zone {
     Directory,
     Content,
-}
-
-pub struct DirectorySelector<'a> {
-    pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
-    pub completions: Vec<String>,
-    pub displayable_completions: VecDeque<Spans<'a>>,
-    pub filter: String,
-    pub rotate_idx: i32,
-    pub rotate_history_idx: i32,
-    pub constraints: Constraint,
-}
-
-impl<'a> DirectorySelector<'a> {
-    pub fn new() -> DirectorySelector<'a> {
-        let config = utils::config::get_config();
-        DirectorySelector {
-            completions: get_path_completions(&PathBuf::from(
-                config.working_directories[0].clone(),
-            )),
-            displayable_completions: VecDeque::from(vec![Spans::from(vec![Span::raw(
-                String::from(""),
-            )])]),
-            filter: String::from(""),
-            matcher: SkimMatcherV2::default(),
-            rotate_idx: 0,
-            rotate_history_idx: 0,
-            constraints: Constraint::Length(1),
-        }
-    }
 }
 
 pub struct App<'a> {
@@ -86,7 +53,7 @@ impl<'a> App<'a> {
             KeyCode::Up => {
                 if self.current_zone == Zone::Content {
                     self.current_zone = Zone::Directory;
-                    selector::update_selector(self, &self.path.clone());
+                    self.directory_selector.update_selector(&self.path.clone());
                 }
             }
 
@@ -112,7 +79,10 @@ impl<'a> App<'a> {
             self.set_zone(&key_code);
         } else {
             match self.current_zone {
-                Zone::Directory => selector::process_event(self, key_code, key_modifiers),
+                Zone::Directory => {
+                    self.directory_selector
+                        .process_event(&mut self.path, key_code, key_modifiers)
+                }
                 Zone::Content => {
                     self.directory_watcher
                         .process_event(key_code, key_modifiers, terminal)
@@ -122,11 +92,13 @@ impl<'a> App<'a> {
     }
 
     fn update_directory_watcher(&mut self) {
+        // Update lines
         let path = &self.path;
         self.directory_watcher.update_path(path);
         self.directory_watcher.update_lines();
         self.directory_watcher.update_lines_filtered();
 
+        // Update directories
         let mut config = utils::config::get_config();
         let new_path = String::from(path.to_str().unwrap());
 
@@ -140,7 +112,7 @@ impl<'a> App<'a> {
     }
 
     pub fn process_tick(&mut self) {
-        // move that to directory_watcher
+        // Check for changes in the directory content
         let dir_changed = self.directory_watcher.dir_changed.clone();
         let mut dir_changed = dir_changed.write().unwrap();
         if *dir_changed {
@@ -148,6 +120,8 @@ impl<'a> App<'a> {
             self.directory_watcher.update_lines();
             self.directory_watcher.update_lines_filtered();
         }
+
+        // Maybe autoplay next
         self.directory_watcher.autoplay();
     }
 }
