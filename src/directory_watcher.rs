@@ -5,6 +5,7 @@ use crate::constants::SongState;
 use crate::utils;
 use chrono::{DateTime, Utc};
 use chrono::{Datelike, NaiveDate};
+use crossbeam::channel::Sender;
 use crossbeam_channel::unbounded;
 use crossterm::event::{KeyCode, KeyModifiers};
 use fuzzy_matcher::skim::SkimMatcherV2;
@@ -43,6 +44,7 @@ pub struct DirectoryWatcher {
     pub mpv_client: Mpv,
     pub path: Arc<RwLock<PathBuf>>,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
+    pub sender_echo: Option<Sender<String>>,
     pub rodio_client: Rodio,
     pub dir_changed: Arc<RwLock<bool>>,
     pub watcher: notify::INotifyWatcher,
@@ -72,6 +74,7 @@ impl DirectoryWatcher {
             rodio_client: Rodio::new(),
             path: Arc::new(RwLock::new(PathBuf::from(default_path))),
             receiver,
+            sender_echo: None,
             dir_changed: Arc::new(RwLock::new(false)),
             watcher,
         }
@@ -306,6 +309,7 @@ impl DirectoryWatcher {
         let current_file = self.current_file.clone();
         let current_backend = self.get_backend(&current_file);
         if new_file == *current_file {
+            crate::deprintln!("current_backend.toggle");
             current_backend.toggle();
         } else {
             if current_backend.busy() {
@@ -313,9 +317,10 @@ impl DirectoryWatcher {
             }
             let new_backend = self.get_backend(&new_file);
             new_backend.start(&new_file);
-            self.current_file = new_file;
+            self.current_file = new_file.clone();
         }
 
+        // Update currently playing file in Config
         let mut config = utils::config::get_config();
         let path = self.path.read().unwrap();
         let entry = config
@@ -417,5 +422,28 @@ impl DirectoryWatcher {
                 self.line_index = 0;
             }
         }
+    }
+
+    pub fn on_tick(&mut self) {
+        // Check for updated directory
+        let dir_changed = self.dir_changed.clone();
+        let mut dir_changed = dir_changed.write().unwrap();
+        if *dir_changed {
+            *dir_changed = false;
+            self.update_lines();
+            self.update_lines_filtered();
+        }
+
+        // Maybe autoplay next
+        self.autoplay();
+
+        // Send updated state message to echo area
+        let current_backend = self.get_backend(&self.current_file.clone());
+        let state = current_backend.state();
+        let sender_echo = self.sender_echo.clone().unwrap();
+        crate::deprintln!("sending -> {}", state);
+        sender_echo
+            .send(format!("{} {}", state, self.current_file))
+            .unwrap();
     }
 }

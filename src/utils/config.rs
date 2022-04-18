@@ -28,7 +28,7 @@ impl Default for Config {
                 .into_iter()
                 .map(String::from)
                 .collect(),
-            tick_rate: String::from("1000"),
+            tick_rate: String::from("500"),
             working_directories: VecDeque::from([String::from(
                 dirs::document_dir()
                     .expect("Could not find Document directory.")

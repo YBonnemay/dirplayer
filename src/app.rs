@@ -1,8 +1,11 @@
 use crate::directory_selector::DirectorySelector;
 use crate::directory_watcher::DirectoryWatcher;
+use crate::echo_area;
+use crate::echo_area::EchoArea;
 use crate::utils;
 use crate::KeyCode;
 use crate::KeyModifiers;
+use crossbeam_channel::unbounded;
 use std::fs;
 use std::io::Stdout;
 use std::path::Path;
@@ -28,6 +31,7 @@ pub struct App<'a> {
     current_zone: Zone,
     pub directory_selector: DirectorySelector<'a>,
     pub directory_watcher: DirectoryWatcher,
+    pub echo_area: EchoArea,
     pub path: PathBuf,
 }
 
@@ -35,6 +39,7 @@ impl<'a> App<'a> {
     pub fn new() -> App<'a> {
         let mut app = App::default();
         app.directory_watcher.listen_start();
+        app.directory_watcher.sender_echo = Some(app.echo_area.sender.clone());
         app
     }
 
@@ -44,6 +49,7 @@ impl<'a> App<'a> {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),
             directory_watcher: DirectoryWatcher::new(),
+            echo_area: EchoArea::new(),
             path: PathBuf::from(config.working_directories[0].clone()),
         }
     }
@@ -112,16 +118,6 @@ impl<'a> App<'a> {
     }
 
     pub fn process_tick(&mut self) {
-        // Check for changes in the directory content
-        let dir_changed = self.directory_watcher.dir_changed.clone();
-        let mut dir_changed = dir_changed.write().unwrap();
-        if *dir_changed {
-            *dir_changed = false;
-            self.directory_watcher.update_lines();
-            self.directory_watcher.update_lines_filtered();
-        }
-
-        // Maybe autoplay next
-        self.directory_watcher.autoplay();
+        self.directory_watcher.on_tick();
     }
 }

@@ -46,6 +46,7 @@ impl Rodio {
                 };
                 match event.event_type {
                     EventType::Start => {
+                        crate::deprintln!("switched to -> {}", SongState::Playing);
                         *state.write().unwrap() = SongState::Playing;
                         if !sink.empty() {
                             sink.stop();
@@ -63,20 +64,24 @@ impl Rodio {
                     }
                     EventType::Play => {
                         sink.play();
+                        crate::deprintln!("switched to -> {}", SongState::Playing);
                         *state.write().unwrap() = SongState::Playing;
                     }
                     EventType::Pause => {
                         sink.pause();
+                        crate::deprintln!("switched to -> {}", SongState::Paused);
                         *state.write().unwrap() = SongState::Paused;
                     }
                     EventType::Stop => {
                         sink.stop();
+                        crate::deprintln!("switched to -> {}", SongState::Ended);
                         *state.write().unwrap() = SongState::Ended;
                     }
                     EventType::Tick => {
                         // Housekeeping
                         if sink.empty() {
                             // Should expose sink instead of doing this little dance, but doesn't work
+                            crate::deprintln!("switched to -> {}", SongState::Ended);
                             *state.write().unwrap() = SongState::Ended;
                         }
                     }
@@ -144,8 +149,7 @@ impl AudioBackend for Rodio {
     }
 
     fn toggle(&mut self) {
-        let state = self.state();
-        match state {
+        match self.state() {
             SongState::Paused => self.resume(),
             SongState::Playing => self.pause(),
             SongState::Ended => {}

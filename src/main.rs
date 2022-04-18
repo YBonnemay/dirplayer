@@ -5,6 +5,7 @@ pub mod backend_trait;
 mod constants;
 mod directory_selector;
 mod directory_watcher;
+mod echo_area;
 mod utils;
 
 use app::App;
@@ -17,7 +18,6 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::fs;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -29,7 +29,6 @@ use tui::{backend::CrosstermBackend, Terminal};
 enum Event<I> {
     Input(I),
     Tick,
-    DirectoryUpdate,
 }
 
 // fn draw<'a, B: tui::backend::Backend>(f: &mut Frame<B>, app: &'a mut App<'a>) {
@@ -37,26 +36,17 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
     // let constraints = app.directory_selector.constraints;
     // let test = f.size();
     let chunks = Layout::default()
-        .constraints(vec![Constraint::Length(1), Constraint::Percentage(100)])
+        .constraints(vec![
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
         .split(f.size());
-    let path = app.path.clone();
-    let displayable_directories = app.directory_selector.get_displayable(path);
-    f.render_widget(displayable_directories, chunks[0]);
-    app.directory_watcher.draw_directory(f, chunks[1]);
-}
 
-pub fn get_path_lines(path: &Path, acc: &mut Vec<String>) {
-    let paths = fs::read_dir(path).unwrap();
-    for content in paths {
-        let unwrapped_content = content.unwrap();
-        if !unwrapped_content.path().is_dir() {
-            acc.push(String::from(
-                unwrapped_content.file_name().to_string_lossy(),
-            ));
-        } else {
-            get_path_lines(&unwrapped_content.path(), acc);
-        }
-    }
+    app.directory_selector
+        .draw_directory(f, chunks[0], &app.path);
+    app.directory_watcher.draw_directory(f, chunks[1]);
+    app.echo_area.draw(f, chunks[2]);
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,10 +54,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: opus behind ff
     // TODO: Way, way to many Strings
     // TODO: graceful stop
-    // TODO: during filtering : if index in filtered, stay on index. Else go to start.
-    // TODO: logging window
     // TODO: better filter diacritics. Better filter algo too.
-    // TODO: wait before replay
+    // TODO: more info in echo area. Maybe refresh not on tick but on event
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
@@ -136,9 +124,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Event::Tick => {
                 app.process_tick();
-            }
-            Event::DirectoryUpdate => {
-                // TODO
             }
         }
     }
