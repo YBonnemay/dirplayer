@@ -56,6 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: graceful stop
     // TODO: better filter diacritics. Better filter algo too.
     // TODO: more info in echo area. Maybe refresh not on tick but on event
+    // TODO: fix filtering of songs (should be no rar, etc.)
+    // TODO: implement play next
+    // TODO: display filterg
+    // TODO: display help
+    // TODO: movement to echo area
 
     let config = utils::config::get_set_config();
     let mut app = App::new();

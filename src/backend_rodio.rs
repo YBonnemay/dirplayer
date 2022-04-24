@@ -1,5 +1,6 @@
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
+use crossbeam::channel::Sender;
 use crossbeam_channel::unbounded;
 use rodio::{Decoder, OutputStream};
 use std::fs::File;
@@ -11,6 +12,7 @@ enum EventType {
     Start,
     Play,
     Pause,
+    SilentPause,
     Stop,
     Tick,
 }
@@ -27,7 +29,7 @@ pub struct Rodio {
 }
 
 impl Rodio {
-    pub fn new() -> Self {
+    pub fn new(echo_area_sender: Sender<String>) -> Self {
         let (sender, receiver) = unbounded();
         let state = Arc::new(RwLock::new(SongState::Ended));
         let state_new = state.clone();
@@ -46,7 +48,7 @@ impl Rodio {
                 };
                 match event.event_type {
                     EventType::Start => {
-                        crate::deprintln!("switched to -> {}", SongState::Playing);
+                        crate::deprintln!("switched to {} {}", SongState::Playing, event.file_name);
                         *state.write().unwrap() = SongState::Playing;
                         if !sink.empty() {
                             sink.stop();
@@ -60,28 +62,62 @@ impl Rodio {
                             }
                             Err(e) => print!("{}", e),
                         }
+
                         *file_name.write().unwrap() = event.file_name;
+
+                        echo_area_sender
+                            .send(format!(
+                                "{} {}",
+                                SongState::Playing,
+                                file_name.read().unwrap()
+                            ))
+                            .unwrap();
                     }
                     EventType::Play => {
                         sink.play();
-                        crate::deprintln!("switched to -> {}", SongState::Playing);
+                        crate::deprintln!("switched to {} {}", SongState::Playing, event.file_name);
                         *state.write().unwrap() = SongState::Playing;
+
+                        echo_area_sender
+                            .send(format!(
+                                "{} {}",
+                                SongState::Playing,
+                                file_name.read().unwrap()
+                            ))
+                            .unwrap();
                     }
                     EventType::Pause => {
                         sink.pause();
-                        crate::deprintln!("switched to -> {}", SongState::Paused);
+                        crate::deprintln!("switched to {} {}", SongState::Paused, event.file_name);
+                        *state.write().unwrap() = SongState::Paused;
+
+                        echo_area_sender
+                            .send(format!(
+                                "{} {}",
+                                SongState::Paused,
+                                file_name.read().unwrap()
+                            ))
+                            .unwrap();
+                    }
+                    EventType::SilentPause => {
+                        sink.pause();
+                        crate::deprintln!("switched to {} {}", SongState::Paused, event.file_name);
                         *state.write().unwrap() = SongState::Paused;
                     }
                     EventType::Stop => {
                         sink.stop();
-                        crate::deprintln!("switched to -> {}", SongState::Ended);
+                        crate::deprintln!("switched to {} {}", SongState::Ended, event.file_name);
                         *state.write().unwrap() = SongState::Ended;
                     }
                     EventType::Tick => {
                         // Housekeeping
                         if sink.empty() {
                             // Should expose sink instead of doing this little dance, but doesn't work
-                            crate::deprintln!("switched to -> {}", SongState::Ended);
+                            crate::deprintln!(
+                                "(tick) switched to {} {}",
+                                SongState::Ended,
+                                event.file_name
+                            );
                             *state.write().unwrap() = SongState::Ended;
                         }
                     }
@@ -120,6 +156,15 @@ impl AudioBackend for Rodio {
         self.sender
             .send(Event {
                 event_type: EventType::Pause,
+                file_name: String::default(),
+            })
+            .unwrap();
+    }
+
+    fn silent_pause(&mut self) {
+        self.sender
+            .send(Event {
+                event_type: EventType::SilentPause,
                 file_name: String::default(),
             })
             .unwrap();

@@ -44,19 +44,19 @@ pub struct DirectoryWatcher {
     pub mpv_client: Mpv,
     pub path: Arc<RwLock<PathBuf>>,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
-    pub sender_echo: Option<Sender<String>>,
     pub rodio_client: Rodio,
     pub dir_changed: Arc<RwLock<bool>>,
     pub watcher: notify::INotifyWatcher,
 }
 
 impl DirectoryWatcher {
-    pub fn new() -> DirectoryWatcher {
+    pub fn new(echo_area_sender: Sender<String>) -> DirectoryWatcher {
         let (sender, receiver) = unbounded();
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
 
         let config = utils::config::get_config();
         let default_path = config.working_directories[0].clone();
+        let echo_area_sender_cloned = echo_area_sender.clone();
 
         watcher
             .watch(default_path.clone(), RecursiveMode::Recursive)
@@ -70,11 +70,10 @@ impl DirectoryWatcher {
             lines: Arc::new(RwLock::new(Vec::new())),
             lines_filtered: Vec::new(),
             matcher: SkimMatcherV2::default(),
-            mpv_client: Mpv::default(),
-            rodio_client: Rodio::new(),
+            mpv_client: Mpv::new(echo_area_sender_cloned),
+            rodio_client: Rodio::new(echo_area_sender),
             path: Arc::new(RwLock::new(PathBuf::from(default_path))),
             receiver,
-            sender_echo: None,
             dir_changed: Arc::new(RwLock::new(false)),
             watcher,
         }
@@ -313,7 +312,7 @@ impl DirectoryWatcher {
             current_backend.toggle();
         } else {
             if current_backend.busy() {
-                current_backend.pause();
+                current_backend.silent_pause();
             }
             let new_backend = self.get_backend(&new_file);
             new_backend.start(&new_file);
@@ -436,14 +435,5 @@ impl DirectoryWatcher {
 
         // Maybe autoplay next
         self.autoplay();
-
-        // Send updated state message to echo area
-        let current_backend = self.get_backend(&self.current_file.clone());
-        let state = current_backend.state();
-        let sender_echo = self.sender_echo.clone().unwrap();
-        crate::deprintln!("sending -> {}", state);
-        sender_echo
-            .send(format!("{} {}", state, self.current_file))
-            .unwrap();
     }
 }

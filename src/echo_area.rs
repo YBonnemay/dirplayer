@@ -41,9 +41,7 @@ impl<'a> EchoArea {
     }
 
     pub fn draw<B: tui::backend::Backend>(&self, f: &mut tui::Frame<B>, chunk: tui::layout::Rect) {
-        // let message = self.message.clone();
         let message = self.message.read().unwrap();
-        crate::deprintln!("DRAWING {}", (*message));
         let block = Block::default().title(Span::styled(
             (*message).to_string(),
             Style::default().fg(Color::Yellow),

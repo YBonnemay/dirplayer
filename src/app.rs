@@ -1,11 +1,9 @@
 use crate::directory_selector::DirectorySelector;
 use crate::directory_watcher::DirectoryWatcher;
-use crate::echo_area;
 use crate::echo_area::EchoArea;
 use crate::utils;
 use crate::KeyCode;
 use crate::KeyModifiers;
-use crossbeam_channel::unbounded;
 use std::fs;
 use std::io::Stdout;
 use std::path::Path;
@@ -37,19 +35,16 @@ pub struct App<'a> {
 
 impl<'a> App<'a> {
     pub fn new() -> App<'a> {
-        let mut app = App::default();
-        app.directory_watcher.listen_start();
-        app.directory_watcher.sender_echo = Some(app.echo_area.sender.clone());
-        app
-    }
-
-    pub fn default() -> App<'a> {
+        let echo_area = EchoArea::new();
         let config = utils::config::get_config();
+        let mut directory_watcher = DirectoryWatcher::new(echo_area.sender.clone());
+        directory_watcher.listen_start();
+
         App {
             current_zone: Zone::Directory,
             directory_selector: DirectorySelector::new(),
-            directory_watcher: DirectoryWatcher::new(),
-            echo_area: EchoArea::new(),
+            directory_watcher,
+            echo_area,
             path: PathBuf::from(config.working_directories[0].clone()),
         }
     }
@@ -119,5 +114,11 @@ impl<'a> App<'a> {
 
     pub fn process_tick(&mut self) {
         self.directory_watcher.on_tick();
+    }
+}
+
+impl<'a> Default for App<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }

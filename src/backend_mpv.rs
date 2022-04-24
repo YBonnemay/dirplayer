@@ -1,5 +1,6 @@
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
+use crossbeam::channel::Sender;
 use libmpv::Mpv as MpvBackend;
 
 // http://mpv.io/manual/master/#options
@@ -9,16 +10,18 @@ use libmpv::Mpv as MpvBackend;
 pub struct Mpv {
     player: MpvBackend,
     file_name: String,
+    echo_area_sender: Sender<String>,
 }
 
-impl Default for Mpv {
-    fn default() -> Self {
+impl Mpv {
+    pub fn new(echo_area_sender: Sender<String>) -> Self {
         let mpv = MpvBackend::new().expect("Couldn't initialize MpvHandlerBuilder");
         mpv.set_property("vo", "null")
             .expect("Couldn't set vo=null in libmpv");
         Self {
             player: mpv,
             file_name: String::default(),
+            echo_area_sender,
         }
     }
 }
@@ -37,12 +40,24 @@ impl AudioBackend for Mpv {
     }
 
     fn pause(&mut self) {
+        self.echo_area_sender
+            .send(format!("{} {}", SongState::Paused, self.file_name))
+            .unwrap();
+        self.player
+            .set_property("pause", true)
+            .expect("Toggling pause property");
+    }
+
+    fn silent_pause(&mut self) {
         self.player
             .set_property("pause", true)
             .expect("Toggling pause property");
     }
 
     fn resume(&mut self) {
+        self.echo_area_sender
+            .send(format!("{} {}", SongState::Playing, self.file_name))
+            .unwrap();
         self.player
             .set_property("pause", false)
             .expect("Toggling pause property");
