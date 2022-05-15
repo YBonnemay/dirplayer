@@ -266,7 +266,7 @@ impl DirectoryWatcher {
     pub fn process_event(
         &mut self,
         key_code: KeyCode,
-        _: KeyModifiers,
+        key_modifier: KeyModifiers,
         terminal: &Terminal<CrosstermBackend<Stdout>>,
     ) {
         match key_code {
@@ -284,8 +284,15 @@ impl DirectoryWatcher {
                 self.lines_up(slice_size_half as i32)
             }
             KeyCode::Char(c) => {
-                self.filter = format!("{}{}", self.filter, c);
-                self.update_lines_filtered();
+                if c == 'n' && key_modifier == KeyModifiers::CONTROL {
+                    self.play_next();
+                } else if c == 'p' && key_modifier == KeyModifiers::CONTROL {
+                    self.lines_up(1);
+                    self.play_next();
+                } else {
+                    self.filter = format!("{}{}", self.filter, c);
+                    self.update_lines_filtered();
+                }
             }
             KeyCode::Backspace => {
                 let mut chars = self.filter.chars();

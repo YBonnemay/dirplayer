@@ -1,5 +1,4 @@
 use crate::app::get_path_completions;
-use crate::app::App;
 use crate::utils;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;

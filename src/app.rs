@@ -76,7 +76,9 @@ impl<'a> App<'a> {
         key_modifiers: KeyModifiers,
         terminal: &Terminal<CrosstermBackend<Stdout>>,
     ) {
-        if key_modifiers == KeyModifiers::CONTROL {
+        if key_modifiers == KeyModifiers::CONTROL
+            && (key_code == KeyCode::Up || key_code == KeyCode::Down)
+        {
             self.set_zone(&key_code);
         } else {
             match self.current_zone {
