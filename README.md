@@ -1,14 +1,16 @@
+<!-- markdownlint-disable MD024 MD040 MD013 -->
+
 # Playing a directory
 
-This is meant for a rather specific use: mine.
+`dirplayer` will play the music files in a directory, one after the other, in the order of the files creation.
 
-`dirplayer` allows me to play a directory's sound files, sorted by creation date - choose directory, CTRL+down to start autoplay, select files.
+This emulates the behavior of <https://mpesch3.de/1by1.html>.
 
-Backend tries to be [Rodio](https://github.com/RustAudio/rodio), because Rust only.
+Control key + up/down move focus, characters filter the current list (directories or files).
 
-For Opus files, however, [mpv](https://github.com/Cobrand/mpv-rs) is used - plan is to switch to a Rust-only solution as soon as convenient.
+`dirplayer` wants to be pure Rust, but will use  [mpv](https://github.com/Cobrand/mpv-rs) for Opus files. Plan is to switch to a pure Rust solution asap.
 
-This has the features I need, but is unfinished and meant as an exercise in Rust, so you are probably rather looking for:
+Some other similar projects:
 
 - [The apps using tui-rs](https://github.com/fdehau/tui-rs#apps-using-tui) for nice tuis
 - [Songbird](https://github.com/serenity-rs/songbird) for sound stuff

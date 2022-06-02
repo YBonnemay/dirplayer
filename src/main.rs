@@ -61,6 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: home / end movements
     // TODO: better event matrix
     // TODO: better shortcut management
+    // TODO: volume control?
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
