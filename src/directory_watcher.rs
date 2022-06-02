@@ -1,3 +1,4 @@
+#[cfg(feature = "mpv")]
 use crate::backend_mpv::Mpv;
 use crate::backend_rodio::Rodio;
 use crate::backend_trait::AudioBackend;
@@ -41,6 +42,7 @@ pub struct DirectoryWatcher {
     pub lines: Arc<RwLock<Vec<DirEntry>>>,
     pub lines_filtered: Vec<Line>,
     pub matcher: fuzzy_matcher::skim::SkimMatcherV2,
+    #[cfg(feature = "mpv")]
     pub mpv_client: Mpv,
     pub path: Arc<RwLock<PathBuf>>,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
@@ -70,6 +72,7 @@ impl DirectoryWatcher {
             lines: Arc::new(RwLock::new(Vec::new())),
             lines_filtered: Vec::new(),
             matcher: SkimMatcherV2::default(),
+            #[cfg(feature = "mpv")]
             mpv_client: Mpv::new(echo_area_sender_cloned),
             rodio_client: Rodio::new(echo_area_sender),
             path: Arc::new(RwLock::new(PathBuf::from(default_path))),
@@ -256,7 +259,7 @@ impl DirectoryWatcher {
     }
 
     pub fn get_backend(&mut self, file_name: &str) -> &mut dyn AudioBackend {
-        if file_name.ends_with("opus") {
+        if file_name.ends_with("opus") && cfg!(feature = "mpv") {
             &mut self.mpv_client
         } else {
             &mut self.rodio_client

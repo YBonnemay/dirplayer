@@ -1,4 +1,5 @@
 mod app;
+#[cfg(feature = "mpv")]
 mod backend_mpv;
 mod backend_rodio;
 pub mod backend_trait;
@@ -19,10 +20,10 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use std::io::stdout;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
-use tui::layout::{Constraint, Direction, Layout};
+use tui::layout::{Constraint, Layout};
 use tui::Frame;
 use tui::{backend::CrosstermBackend, Terminal};
 
@@ -50,9 +51,6 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO: Clean!
-    // TODO: opus behind ff
-    // TODO: Way, way to many Strings
     // TODO: graceful stop
     // TODO: better filter diacritics. Better filter algo too.
     // TODO: more info in echo area. Maybe refresh not on tick but on event
@@ -62,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: movement to echo area
     // TODO: home / end movements
     // TODO: better event matrix
+    // TODO: better shortcut management
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
