@@ -12,6 +12,7 @@ use crossterm::event::{KeyCode, KeyModifiers};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use notify::{watcher, RecursiveMode, Watcher};
+use rand::Rng;
 use std::cmp;
 use std::io::Stdout;
 use std::path::{Path, PathBuf};
@@ -359,6 +360,17 @@ impl DirectoryWatcher {
         }
 
         if !index_moved {
+            let config = utils::config::get_config();
+            match config.play_mode {
+                utils::config::PlayMode::Queue => {
+                    self.lines_down(1);
+                }
+                utils::config::PlayMode::Random => {
+                    let line_length: i32 = self.lines_filtered.len() as i32;
+                    let new_index = rand::thread_rng().gen_range(0..line_length - 1);
+                    self.line_index = new_index;
+                }
+            }
             self.lines_down(1);
         }
 

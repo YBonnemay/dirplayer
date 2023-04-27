@@ -6,6 +6,12 @@ use std::path::PathBuf;
 
 static CONFIG_PATH: &str = "dirplayer/config.json";
 
+#[derive(Serialize, Deserialize)]
+pub enum PlayMode {
+    Queue,
+    Random,
+}
+
 fn get_config_file() -> PathBuf {
     let mut config_file = dirs::config_dir().expect("Could not find home directory.");
     config_file.push(CONFIG_PATH);
@@ -19,6 +25,7 @@ pub struct Config {
     pub working_directories: VecDeque<String>,
     pub working_directory_line_index: HashMap<String, i32>,
     pub path: String,
+    pub play_mode: PlayMode,
 }
 
 impl Default for Config {
@@ -37,6 +44,7 @@ impl Default for Config {
             )]),
             working_directory_line_index: HashMap::default(),
             path: String::from(PathBuf::default().to_str().unwrap()),
+            play_mode: PlayMode::Queue,
         }
     }
 }

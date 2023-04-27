@@ -50,6 +50,18 @@ fn draw<B: tui::backend::Backend>(f: &mut Frame<B>, app: &mut App) {
     app.echo_area.draw(f, chunks[2]);
 }
 
+fn switch_play_mode() {
+    let mut config = utils::config::get_config();
+    // TODO : variant_count, enumerate PlayModes
+    let play_mode = match config.play_mode {
+        utils::config::PlayMode::Queue => utils::config::PlayMode::Random,
+        utils::config::PlayMode::Random => utils::config::PlayMode::Queue,
+    };
+
+    config.play_mode = play_mode;
+    utils::config::update_config(config);
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: graceful stop
     // TODO: better filter diacritics. Better filter algo too.
@@ -62,6 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: better event matrix
     // TODO: better shortcut management
     // TODO: volume control?
+    // TODO: use scoped threads
 
     let config = utils::config::get_set_config();
     let mut app = App::new();
@@ -124,6 +137,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     terminal.show_cursor()?;
                     // end
                     break;
+                } else if event.modifiers == KeyModifiers::CONTROL
+                    && (event.code == KeyCode::Char('t'))
+                {
+                    switch_play_mode();
                 } else {
                     app.process_event(event.code, event.modifiers, &terminal);
                 }
