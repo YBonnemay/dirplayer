@@ -1,0 +1,37 @@
+[package]
+name = "dirplayer"
+version = "0.1.0"
+authors = ["Yann Bonnemay <y.bonnemay@gmail.com>"]
+edition = "2021"
+
+[dependencies]
+argh = "*"
+crossbeam = "*"
+crossbeam-channel = "0.3.8"
+crossterm = "*"
+notify = "=5.0.0-pre.1"
+rand = "*"
+serde = { version = "1.0", features = ["derive"] }
+serde_derive = "*"
+serde_json = "*"
+walkdir = "2"
+fuzzy-matcher = "*"
+rodio = { version = "0.17.3", features = ['symphonia-isomp4', 'symphonia-aac'] }
+chrono = "*"
+libmpv = { version = "2" }
+anyhow = "1.0"
+dirs = "4.0"
+colorous = "1.0.6"
+ratatui = "0.26.2"
+log = "0.4.21"
+log4rs = "1.3.0"
+itertools = "0.12.1"
+strum = "0.26.2"
+code-fuzzy-match = "0.2.2"
+sublime_fuzzy = "0.7.0"
+zip = "2.1.3"
+ansi_term = "0.12.1"
+
+[features]
+default = ["mpv"]
+mpv = []

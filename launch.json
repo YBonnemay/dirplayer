@@ -1,0 +1,11 @@
+{
+  "configurations": [
+    {
+      "type": "gdb",
+      "gdbpath": "rust-gdb",
+      "request": "launch",
+      "name": "dirplayer debug",
+      "target": "${workspaceFolder}/target/debug/dirplayer"
+    }
+  ]
+}
