@@ -1,6 +1,6 @@
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
-use libmpv::Mpv as MpvBackend;
+use libmpv2::Mpv as MpvBackend;
 
 // http://mpv.io/manual/master/#options
 // http://mpv.io/manual/master/#list-of-input-commands

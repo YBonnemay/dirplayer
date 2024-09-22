@@ -18,7 +18,7 @@ walkdir = "2"
 fuzzy-matcher = "*"
 rodio = { version = "0.17.3", features = ['symphonia-isomp4', 'symphonia-aac'] }
 chrono = "*"
-libmpv = { version = "2" }
+libmpv2 = { version = "4.0.0" }
 anyhow = "1.0"
 dirs = "4.0"
 colorous = "1.0.6"
