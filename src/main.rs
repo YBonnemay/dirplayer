@@ -8,14 +8,20 @@ mod constants;
 mod directories;
 mod echo_area;
 mod files;
+mod input;
 mod ui;
 mod utils;
-use app::App;
+use cocotte::app::App;
+use cocotte::sub_app::SubApp;
+use cocotte::sub_app_view::SubAppViewTrait;
+use crossterm::event::{Event, EventStream, KeyEvent};
 use crossterm::{
-    event::{self, poll, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, poll, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use eyre::Result;
+use futures::StreamExt;
 use itertools::Itertools;
 use log4rs::config::{Appender, Root};
 use log4rs::Config;
@@ -26,6 +32,77 @@ use std::io::{self, stdout};
 use std::panic::set_hook;
 use std::panic::take_hook;
 use std::{backtrace::Backtrace, time::Duration};
+use tokio::time::Interval;
+
+#[derive(Debug, Clone)]
+pub enum EventEnum {
+    Tick,
+    Key(KeyEvent),
+}
+
+#[derive(Default)]
+pub enum Focus {
+    Input,
+}
+
+#[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
+pub enum Status {
+    Active,
+    #[default]
+    Inactive,
+    Cache,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct WorkingPath {
+    pub path: String,
+    pub status: Status,
+}
+
+#[derive(Default)]
+pub struct AppState {
+    input_string: String,
+    should_quit: bool,
+    focus: Focus,
+}
+
+struct EventPump {
+    reader: EventStream,
+    interval: tokio::time::Interval,
+}
+
+impl EventPump {
+    fn new(fps: f32) -> Self {
+        let period = Duration::from_secs_f32(1.0 / fps);
+        Self {
+            reader: EventStream::new(),
+            interval: tokio::time::interval(period),
+        }
+    }
+
+    async fn next(&mut self) -> Option<EventEnum> {
+        tokio::select! {
+            _ = self.interval.tick() => {
+                // tick -> currently no app event
+                Some(EventEnum::Tick)
+            }
+            Some(Ok(ev)) = self.reader.next() => {
+                if let Event::Key(key) = ev {
+                    Some(EventEnum::Key(key))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+cocotte::define_sub_apps! {
+    event = EventEnum;
+    state = AppState;
+    Input(crate::input_sub_app::InputSubApp) => crate::input_sub_app::InputSubApp::new(),
+    Display(crate::display_sub_app::DisplaySubApp) => crate::display_sub_app::DisplaySubApp::new(),
+}
 
 fn switch_play_mode() {
     let mut config = utils::config::get_config();
@@ -56,64 +133,29 @@ pub fn restore_tui() -> io::Result<()> {
     Ok(())
 }
 
-fn main_app() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+pub async fn start() -> Result<()> {
     utils::config::get_home_dir();
 
-    enable_raw_mode()?; // crossterm terminal setup
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?; // crossterm event setup
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    terminal.hide_cursor()?;
-    let mut app = App::new();
+    // events
+    let mut event_pump = EventPump::new(2.0);
+    let sub_apps = make_sub_apps();
+    let mut app = App::new(sub_apps);
+    let mut app_state = AppState::default();
 
-    let original_hook = take_hook();
-    set_hook(Box::new(move |panic_info| {
-        let _ = restore_tui();
-        original_hook(panic_info);
-    }));
-
-    terminal.clear()?;
-
-    loop {
-        if poll(Duration::from_millis(1000))? {
-            let event = event::read()?;
-            if let Event::Key(key) = event {
-                // Only key presses.
-                if key.kind != event::KeyEventKind::Press && key.kind != event::KeyEventKind::Repeat
-                {
-                    // Skip events that are not KeyEventKind::Press
-                    continue;
-                }
-
-                let frame = terminal.get_frame();
-                match app.handle_event(&frame, &event) {
-                    Ok(_) => {
-                        terminal.draw(|f| ui::ui(f, &mut app))?;
-                    }
-                    Err(_) => {
-                        break;
-                        // Manage handling err
-                    }
-                }
-
-                log::debug!("Event done");
+    while let Some(mut app_event) = event_pump.next().await {
+        // TODO implement key comparison for Ctrl+C here
+        if let EventEnum::Key(key_event) = app_event {
+            if key_event.modifiers.contains(KeyModifiers::CONTROL)
+                && key_event.code == KeyCode::Char('c')
+            {
+                break;
             }
-        } else {
-            app.handle_tick();
-            terminal.draw(|f| ui::ui(f, &mut app))?;
         }
+        app.handle_input(&mut app_event, &mut app_state);
+        app.draw()?;
+        // terminal.draw(|frame| app.render(frame))?;
     }
-
-    // Restore the terminal and close application
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.clear()?;
-    crossterm::terminal::disable_raw_mode()?;
-    terminal.show_cursor()?;
 
     Ok(())
 }
@@ -134,38 +176,26 @@ fn log_setup() {
     log4rs::init_config(config).unwrap();
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    log_setup();
-    match main_app() {
-        Ok(_) => {}
-        Err(_err) => {
-            let stdout = stdout();
-            let backend = CrosstermBackend::new(stdout);
-            let mut terminal = Terminal::new(backend)?;
-            execute!(
-                terminal.backend_mut(),
-                LeaveAlternateScreen,
-                DisableMouseCapture
-            )?;
-            terminal.clear()?;
-            crossterm::terminal::disable_raw_mode()?;
-            terminal.show_cursor()?;
-        }
-    };
+fn main() -> Result<()> {
+    let res = start();
+
+    if let Err(err) = res {
+        println!("{:?}", err);
+    }
 
     Ok(())
-
-    // TODO: show next
-    // TODO: remove epiubs from files
-    // TODO: unarchive and read
-    // TODO: read mpc
-    // TODO: more info in echo area. Maybe refresh not on tick but on event
-    // TODO: fix filtering of songs (should be no rar, etc.)
-    // TODO: display filterg
-    // TODO: display help
-    // TODO: movement to echo area
-    // TODO: home / end movements
-    // TODO: better event matrix
-    // TODO: better shortcut management
-    // TODO: volume control?
 }
+
+// TODO: show next
+// TODO: remove epiubs from files
+// TODO: unarchive and read
+// TODO: read mpc
+// TODO: more info in echo area. Maybe refresh not on tick but on event
+// TODO: fix filtering of songs (should be no rar, etc.)
+// TODO: display filterg
+// TODO: display help
+// TODO: movement to echo area
+// TODO: home / end movements
+// TODO: better event matrix
+// TODO: better shortcut management
+// TODO: volume control?
