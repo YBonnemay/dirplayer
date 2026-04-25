@@ -1,5 +1,6 @@
 use std::cmp;
 
+pub mod completion;
 pub mod config;
 pub mod directory;
 pub mod macros;

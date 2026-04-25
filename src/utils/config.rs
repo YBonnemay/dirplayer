@@ -59,7 +59,7 @@ pub struct Config {
     pub working_directories: VecDeque<WorkingPath>,
     // pub working_directories_line_index: HashMap<String, i32>,
     // Directory for current completions
-    pub working_directory: String,
+    pub working_directory: PathBuf,
     pub play_mode: PlayMode,
     pub log_level: LevelFilter,
     pub current_file: String,
@@ -92,7 +92,7 @@ impl Default for Config {
                     status: Status::Cache,
                 },
             ]),
-            working_directory: String::from(PathBuf::default().to_str().unwrap()),
+            working_directory: PathBuf::default(),
             play_mode: PlayMode::Queue,
             log_level: LevelFilter::Info,
             current_file: "".to_string(),

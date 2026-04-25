@@ -1,6 +1,6 @@
-use crate::app::get_path_completions;
 use crate::app::Chord;
 use crate::utils;
+use crate::utils::completion::get_path_completions;
 use crate::utils::config;
 use crate::utils::config::Config;
 use crate::utils::config::Status;

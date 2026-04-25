@@ -7,25 +7,8 @@ use crate::KeyModifiers;
 use crossterm::event::Event;
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
-use std::fs;
 
 pub type Chord = (KeyModifiers, KeyCode);
-
-pub fn get_path_completions(path: &String) -> Vec<String> {
-    match fs::read_dir(path) {
-        Ok(paths) => paths
-            .filter_map(|e| {
-                let e_ref = e.as_ref().ok()?;
-                let metadata = e_ref.metadata().ok()?;
-                if !metadata.is_dir() {
-                    return None;
-                }
-                Some(e_ref.file_name().to_string_lossy().to_string())
-            })
-            .collect::<Vec<String>>(),
-        Err(_) => vec![],
-    }
-}
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Tab {
