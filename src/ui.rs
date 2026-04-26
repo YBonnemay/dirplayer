@@ -17,27 +17,26 @@ use ratatui::{
     Frame,
 };
 use std::rc::Rc;
-use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
-#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter, Debug)]
+#[derive(Default, Clone, Copy, Debug)]
 pub enum Focus {
     #[default]
     Middle,
     Down,
 }
 
-#[derive(Clone, Copy, Display, FromRepr, EnumIter, Debug)]
+#[derive(Clone, Copy, Debug, EnumIter)]
 pub enum MenuTab {
-    #[strum(to_string = "Directories")]
     Directories,
-    #[strum(to_string = "Files")]
     Files,
 }
 
 impl MenuTab {
     /// Return tab's name as a styled `Line`
     fn title(self) -> Line<'static> {
-        format!("  {self}  ")
+        format!("  {:?}  ", self)
             .fg(tailwind::SLATE.c200)
             .bg(self.palette().c900)
             .into()
@@ -135,7 +134,7 @@ pub fn ui(f: &mut Frame, app: &mut App) {
             // Append candidate line
             if app.directories.state == State::Editing {
                 let mut candidate_line = vec![
-                    Span::from(app.directories.working_directory.clone()),
+                    Span::from(app.directories.working_directory.to_string_lossy()),
                     Span::from(" | ".to_string()),
                 ];
 

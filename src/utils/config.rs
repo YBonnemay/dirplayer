@@ -6,6 +6,7 @@ use log::LevelFilter;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::File;
+use std::path::Path;
 use std::path::PathBuf;
 
 static CONFIG_PATH: &str = "dirplayer/config.json";
@@ -92,7 +93,7 @@ impl Default for Config {
                     status: Status::Cache,
                 },
             ]),
-            working_directory: PathBuf::default(),
+            working_directory: PathBuf::from(get_audio_dir().into_os_string()),
             play_mode: PlayMode::Queue,
             log_level: LevelFilter::Info,
             current_file: "".to_string(),
@@ -138,13 +139,13 @@ pub fn update_config(config: &Config) {
     serde_json::to_writer_pretty(file, &config).expect("Could not save to config file.");
 }
 
-pub fn update_working_directory(working_directory: &str) {
+pub fn update_working_directory(working_directory: &Path) {
     let config_file = get_config_file();
     let path_to_config = &config_file.parent().unwrap();
     let file = File::open(&config_file).expect("Could not find config file.");
     let mut config: Config =
         serde_json::from_reader(file).expect("Could not parse config file as json.");
-    config.working_directory = String::from(working_directory);
+    config.working_directory = PathBuf::from(working_directory);
     std::fs::create_dir_all(path_to_config).expect("Could not crate path to config file.");
     let file = File::create(config_file).expect("Could not create config file.");
     serde_json::to_writer_pretty(file, &config).expect("Could not save to config file.");

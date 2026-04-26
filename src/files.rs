@@ -49,7 +49,7 @@ pub struct Files {
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
     pub rodio_client: Rodio,
     pub dir_changed: Arc<RwLock<bool>>,
-    pub watcher: notify::INotifyWatcher,
+    pub watcher: notify::RecommendedWatcher,
     pub extensions: Vec<String>,
     extensions_archives: Vec<String>,
 }
@@ -91,6 +91,7 @@ impl Files {
             lines: Arc::new(RwLock::new(Vec::new())),
             lines_filtered: Vec::new(),
             scoring,
+            #[cfg(feature = "mpv")]
             mpv_client: Mpv::new(),
             rodio_client: Rodio::new(),
             paths: Arc::new(RwLock::new(paths)),
@@ -195,12 +196,8 @@ impl Files {
         gradient.eval_continuous(ratio).as_tuple()
     }
 
-    pub fn get_backend(&mut self, file_name: &str) -> &mut dyn AudioBackend {
-        if file_name.ends_with("opus") && cfg!(feature = "mpv") {
-            &mut self.mpv_client
-        } else {
-            &mut self.rodio_client
-        }
+    pub fn get_backend(&mut self, _file_name: &str) -> &mut dyn AudioBackend {
+        &mut self.rodio_client
     }
 
     pub fn handle_event(&mut self, frame: &Frame, chord: Chord) {

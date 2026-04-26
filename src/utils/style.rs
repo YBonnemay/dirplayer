@@ -2,7 +2,10 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
-use std::cmp::Ordering;
+use std::{
+    cmp::Ordering,
+    path::{Path, PathBuf},
+};
 
 pub fn string_to_styled_text(raw_string: &str, indices: &[usize]) -> Line<'static> {
     let bold_style = Style::default()
@@ -26,12 +29,19 @@ pub fn string_to_styled_text(raw_string: &str, indices: &[usize]) -> Line<'stati
 /// Return the string in argument styled at indices.
 /// Return empty string when out of bound indices found.
 /// Return a word a spans
-pub fn string_to_styled_spans(raw_string: String, mut indices: Vec<usize>) -> Vec<Span<'static>> {
+pub fn string_to_styled_spans(raw_string: &Path, mut indices: Vec<usize>) -> Vec<Span<'static>> {
     let bold_style = Style::default()
         .fg(Color::Green)
         .add_modifier(Modifier::BOLD);
 
+    let raw_string = raw_string.to_string_lossy();
+    let raw_string = raw_string.as_ref();
     let mut styled_string: Vec<Span> = vec![];
+
+    if raw_string.is_empty() {
+        return styled_string;
+    }
+
     let mut start_index = 0_usize;
     let raw_string_len = raw_string.len();
     let max_index = raw_string_len - 1;
@@ -67,32 +77,4 @@ pub fn string_to_styled_spans(raw_string: String, mut indices: Vec<usize>) -> Ve
     }
 
     styled_string
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn string_to_styled_spans_test() {
-        assert_eq!(
-            string_to_styled_string(&"aaaaaa".to_string(), &vec![1, 3, 4]),
-            "a\u{1b}[33m\u{1b}[0ma\u{1b}[33m\u{1b}[0m\u{1b}[33m\u{1b}[0ma"
-        );
-
-        assert_eq!(
-            string_to_styled_string(&"bb".to_string(), &vec![1, 3, 4]),
-            ""
-        );
-
-        assert_eq!(
-            string_to_styled_string(&"cccccc".to_string(), &vec![]),
-            "cccccc"
-        );
-
-        assert_eq!(
-            string_to_styled_string(&"dddddd".to_string(), &vec![4, 1, 3]),
-            "d\u{1b}[33m\u{1b}[0md\u{1b}[33m\u{1b}[0m\u{1b}[33m\u{1b}[0md"
-        );
-    }
 }

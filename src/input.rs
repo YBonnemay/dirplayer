@@ -12,7 +12,13 @@ use cocotte::sub_app::SubApp;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
 use itertools::Itertools;
+use ratatui::layout::Constraint;
+use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::Block;
+use ratatui::widgets::Borders;
+use ratatui::widgets::Paragraph;
+use ratatui::Frame;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -21,7 +27,7 @@ use sublime_fuzzy::{FuzzySearch, Scoring};
 pub struct Input {
     pub scoring: Scoring,
     pub completions: Vec<PathBuf>,
-    pub displayable_completions: Vec<Vec<String>>,
+    pub displayable_completions: Vec<Vec<Span<'static>>>,
     pub filter: String,
     pub input: String,
     pub rotate_idx: i32,
@@ -59,40 +65,30 @@ impl Input {
         }
     }
 
-    pub fn get_displayable_completions(&self) -> Vec<PathBuf> {
-        let completions = self.completions;
-        let filter = self.filter;
-
-        if filter.is_empty() {
-            return completions;
-        }
+    pub fn get_displayable_completions(&self) -> Vec<Vec<Span<'static>>> {
+        let completions = &self.completions;
+        let filter = &self.filter;
 
         let mut displayable_completions = completions
             .iter()
             .cloned()
             .filter_map(|completion| {
-                let completion_str = completion.to_str();
-
-                match completion_str {
-                    Some(completion_str) => {
-                        if let Some(matched) = FuzzySearch::new(&self.filter, completion_str)
-                            .case_insensitive()
-                            .score_with(&self.scoring)
-                            .best_match()
-                        {
-                            if matched.score() <= 0 {
-                                return None;
-                            }
-
-                            let indices = matched.matched_indices().copied().collect_vec();
-                            let added_spans =
-                                utils::style::string_to_styled_spans(completion, indices);
-
-                            matched.Some(added_spans)
-                        }
-                    }
-                    None => return None,
+                if filter.is_empty() {
+                    return Some(vec![Span::from(completion.to_string_lossy().into_owned())]);
                 }
+
+                let completion_str = completion.to_str()?;
+                let matched = FuzzySearch::new(&self.filter, completion_str)
+                    .case_insensitive()
+                    .score_with(&self.scoring)
+                    .best_match()?;
+
+                if matched.score() <= 0 {
+                    return None;
+                }
+
+                let indices = matched.matched_indices().copied().collect_vec();
+                Some(utils::style::string_to_styled_spans(&completion, indices))
             })
             .collect_vec();
 
@@ -114,32 +110,6 @@ impl Input {
             .collect_vec();
 
         displayable_completions
-    }
-
-    fn update_working_directories(&mut self) {
-        let candidate = String::from(&self.directory);
-        log::debug!("update_working_directories");
-        if self
-            .working_directories
-            .iter()
-            .any(|WorkingPath { path, .. }| path.eq(&candidate) || candidate.starts_with(path))
-        {
-            return;
-        }
-        log::debug!("update_working_directories after");
-
-        self.working_directories.push_back(WorkingPath {
-            path: candidate,
-            status: Status::Active,
-        });
-
-        //
-        let config = utils::config::get_config();
-        utils::config::update_config(&Config {
-            working_directories: self.working_directories.clone(),
-            ..config
-        });
-        self.line_index += 1;
     }
 }
 
@@ -180,13 +150,16 @@ impl SubApp<EventEnum, AppState> for Input {
                             // Update path
                             let new_directory = Path::new(&self.directory)
                                 .join(Line::from(displayable_completions[0].clone()).to_string());
-                            self.directory = String::from(new_directory.to_string_lossy());
+                            self.directory = new_directory;
                             utils::config::update_working_directory(&self.directory);
 
                             // Cancel current filter
                             self.filter = String::from("");
 
-                            log::debug!("KeyCode::Right get_path_completions {}", &self.directory);
+                            log::debug!(
+                                "KeyCode::Right get_path_completions {}",
+                                &self.directory.display()
+                            );
 
                             // refresh completions here
                             self.completions = get_path_completions(&self.directory);
@@ -197,7 +170,7 @@ impl SubApp<EventEnum, AppState> for Input {
                             if self.filter.is_empty() {
                                 let mut path = PathBuf::from(&self.directory);
                                 path.pop();
-                                self.directory = String::from(path.to_string_lossy());
+                                self.directory = path;
                                 utils::config::update_working_directory(&self.directory);
                                 self.completions = get_path_completions(&self.directory);
                             } else {
@@ -206,9 +179,7 @@ impl SubApp<EventEnum, AppState> for Input {
                                 self.filter = chars.as_str().to_string();
                             }
                         }
-                        (_, KeyCode::Enter) => {
-                            self.update_working_directories();
-                        }
+                        (_, KeyCode::Enter) => {}
                         (_, KeyCode::Char(c)) => {
                             self.filter = format!("{}{}", self.filter, c);
                         }
@@ -219,18 +190,19 @@ impl SubApp<EventEnum, AppState> for Input {
         }
     }
 
+    // fn render(&self, frame: &mut Frame, area: Rect, title: &str) {
     fn render(&self, frame: &mut Frame, area: Rect, title: &str) {
         let input = Paragraph::new(self.input.as_str())
             .block(Block::default().borders(Borders::ALL).title(title));
         frame.render_widget(input, area);
     }
 
-    fn constraints(&self) -> ratatui::layout::Constraint {
-        ratatui::layout::Constraint::Length(3)
+    fn constraints(&self) -> Constraint {
+        Constraint::Length(3)
     }
 }
 
-impl<'a> Default for Input<'a> {
+impl Default for Input {
     fn default() -> Self {
         Self::new()
     }

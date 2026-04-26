@@ -1,14 +1,23 @@
 use crate::app::Chord;
 use crate::utils;
 use crate::utils::completion::get_path_completions;
-use crate::utils::config;
 use crate::utils::config::Config;
 use crate::utils::config::Status;
 use crate::utils::config::WorkingPath;
+use crate::AppState;
+use crate::EventEnum;
+use cocotte::sub_app::SubApp;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
 use itertools::Itertools;
+use ratatui::layout::Constraint;
+use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
+use ratatui::widgets::Block;
+use ratatui::widgets::Borders;
+use ratatui::widgets::Paragraph;
+use ratatui::widgets::TableState;
+use ratatui::Frame;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,20 +29,20 @@ pub enum State {
     Editing,
 }
 
-pub struct Directories<'a> {
+pub struct Directories {
     pub scoring: Scoring,
-    pub completions: Vec<String>,
-    pub displayable_completions: Vec<Vec<Span<'a>>>,
+    pub completions: Vec<PathBuf>,
+    pub displayable_completions: Vec<Vec<Span<'static>>>,
     pub filter: String,
     pub rotate_idx: i32,
-    pub working_directory: String,
+    pub working_directory: PathBuf,
     pub working_directories: VecDeque<WorkingPath>,
     pub line_index: i32,
     pub state: State,
 }
 
-impl<'a> Directories<'a> {
-    pub fn new() -> Directories<'a> {
+impl Directories {
+    pub fn new() -> Directories {
         let config = utils::config::get_config();
         let scoring = Scoring {
             bonus_consecutive: 64,
@@ -41,13 +50,8 @@ impl<'a> Directories<'a> {
             bonus_match_case: 8,
             penalty_distance: 16,
         };
-        let mut working_directory = config.working_directory.clone();
-        if working_directory.is_empty() {
-            working_directory = String::from(config::get_audio_dir().to_string_lossy());
-        }
-
+        let working_directory = config.working_directory;
         let working_directories = config.working_directories;
-
         Directories {
             completions: get_path_completions(&working_directory),
             displayable_completions: vec![],
@@ -61,7 +65,7 @@ impl<'a> Directories<'a> {
         }
     }
 
-    pub fn get_displayable_completions(&self) -> Vec<Vec<Span<'a>>> {
+    pub fn get_displayable_completions(&self) -> Vec<Vec<Span>> {
         let completions = VecDeque::from(self.completions.clone());
 
         let filter = self.filter.clone();
@@ -71,9 +75,9 @@ impl<'a> Directories<'a> {
             .cloned()
             .filter_map(|completion| {
                 if filter.is_empty() {
-                    return Some(vec![Span::from(completion)]);
+                    return Some(vec![Span::from(completion.to_string_lossy().into_owned())]);
                 }
-                if let Some(matched) = FuzzySearch::new(&self.filter, &completion)
+                if let Some(matched) = FuzzySearch::new(&self.filter, &completion.to_string_lossy())
                     .case_insensitive()
                     .score_with(&self.scoring)
                     .best_match()
@@ -84,7 +88,7 @@ impl<'a> Directories<'a> {
                     }
 
                     let indices = matched.matched_indices().copied().collect_vec();
-                    let added_spans = utils::style::string_to_styled_spans(completion, indices);
+                    let added_spans = utils::style::string_to_styled_spans(&completion, indices);
                     Some(added_spans)
                 } else {
                     None
@@ -113,7 +117,7 @@ impl<'a> Directories<'a> {
     }
 
     fn update_working_directories(&mut self) {
-        let candidate = String::from(&self.working_directory);
+        let candidate = self.working_directory.to_string_lossy();
         log::debug!("update_working_directories");
         if self
             .working_directories
@@ -125,7 +129,7 @@ impl<'a> Directories<'a> {
         log::debug!("update_working_directories after");
 
         self.working_directories.push_back(WorkingPath {
-            path: candidate,
+            path: String::from(candidate),
             status: Status::Active,
         });
 
@@ -152,8 +156,8 @@ impl<'a> Directories<'a> {
                 (KeyModifiers::NONE, KeyCode::Right) => self.rotate_idx -= 1,
                 (KeyModifiers::NONE, KeyCode::Left) => {
                     self.rotate_idx += 1;
-                    let displayable_completions = self.get_displayable_completions();
-                    self.displayable_completions = displayable_completions;
+                    // let displayable_completions = self.get_displayable_completions();
+                    // self.displayable_completions = displayable_completions;
                     // self.displayable_completions = VecDeque::from(vec![displayable_completions]);
                 }
                 (_, KeyCode::Tab) => {
@@ -175,7 +179,8 @@ impl<'a> Directories<'a> {
                     // Update path
                     let new_directory = Path::new(&self.working_directory)
                         .join(Line::from(displayable_completions[0].clone()).to_string());
-                    self.working_directory = String::from(new_directory.to_string_lossy());
+
+                    self.working_directory = new_directory;
                     utils::config::update_working_directory(&self.working_directory);
 
                     // Cancel current filter
@@ -183,7 +188,7 @@ impl<'a> Directories<'a> {
 
                     log::debug!(
                         "KeyCode::Right get_path_completions {}",
-                        &self.working_directory
+                        &self.working_directory.to_string_lossy()
                     );
 
                     // refresh completions here
@@ -195,7 +200,7 @@ impl<'a> Directories<'a> {
                     if self.filter.is_empty() {
                         let mut path = PathBuf::from(&self.working_directory);
                         path.pop();
-                        self.working_directory = String::from(path.to_string_lossy());
+                        self.working_directory = path;
                         utils::config::update_working_directory(&self.working_directory);
                         self.completions = get_path_completions(&self.working_directory);
                     } else {
@@ -238,7 +243,19 @@ impl<'a> Directories<'a> {
     }
 }
 
-impl<'a> Default for Directories<'a> {
+impl SubApp<EventEnum, AppState> for Directories {
+    fn handle_input(&mut self, _event: &mut EventEnum, _app_state: &mut AppState) {}
+
+    fn render(&self, _frame: &mut Frame, _area: Rect, _title: &str) {
+        //
+    }
+
+    fn constraints(&self) -> Constraint {
+        Constraint::Fill(1)
+    }
+}
+
+impl Default for Directories {
     fn default() -> Self {
         Self::new()
     }

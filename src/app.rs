@@ -16,14 +16,14 @@ pub enum Tab {
     Files,
 }
 
-pub struct App<'a> {
+pub struct App {
     pub current_place: Tab,
-    pub directories: Directories<'a>,
+    pub directories: Directories,
     pub files: Files,
 }
 
-impl<'a> App<'a> {
-    pub fn new() -> App<'a> {
+impl App {
+    pub fn new() -> App {
         let mut files = Files::new();
         let directories = Directories::new();
         files.update_paths(&directories.working_directories);
@@ -92,7 +92,7 @@ impl<'a> App<'a> {
     }
 }
 
-impl<'a> Default for App<'a> {
+impl Default for App {
     fn default() -> Self {
         Self::new()
     }

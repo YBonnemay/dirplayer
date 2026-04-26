@@ -1,4 +1,3 @@
-#![feature(backtrace_frames)]
 mod app;
 #[cfg(feature = "mpv")]
 mod backend_mpv;
@@ -27,11 +26,12 @@ use log4rs::config::{Appender, Root};
 use log4rs::Config;
 use log4rs::{append::file::FileAppender, encode::pattern::PatternEncoder};
 use ratatui::{backend::CrosstermBackend, Terminal};
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::io::{self, stdout};
 use std::panic::set_hook;
 use std::panic::take_hook;
-use std::{backtrace::Backtrace, time::Duration};
+use std::time::Duration;
 use tokio::time::Interval;
 
 #[derive(Debug, Clone)]
@@ -42,6 +42,7 @@ pub enum EventEnum {
 
 #[derive(Default)]
 pub enum Focus {
+    #[default]
     Input,
 }
 
@@ -100,8 +101,8 @@ impl EventPump {
 cocotte::define_sub_apps! {
     event = EventEnum;
     state = AppState;
-    Input(crate::input_sub_app::InputSubApp) => crate::input_sub_app::InputSubApp::new(),
-    Display(crate::display_sub_app::DisplaySubApp) => crate::display_sub_app::DisplaySubApp::new(),
+    Input(input::Input) => input::Input::new(),
+    Directories(directories::Directories) => directories::Directories::new(),
 }
 
 fn switch_play_mode() {
@@ -114,23 +115,6 @@ fn switch_play_mode() {
 
     config.play_mode = play_mode;
     utils::config::update_config(&config);
-}
-
-pub fn restore_tui() -> io::Result<()> {
-    disable_raw_mode()?;
-    execute!(stdout(), LeaveAlternateScreen)?;
-    execute!(stdout(), DisableMouseCapture)?;
-
-    let trace = Backtrace::capture();
-
-    trace
-        .frames()
-        .iter()
-        .map(|frame| {
-            log::error! {"panic occurred: {:?}", frame};
-        })
-        .collect_vec();
-    Ok(())
 }
 
 #[tokio::main]
