@@ -8,6 +8,8 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 static CONFIG_PATH: &str = "dirplayer/config.json";
 static CACHE_PATH: &str = "dirplayer";
@@ -54,45 +56,71 @@ pub struct WorkingPath {
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    pub extensions: Vec<String>,
-    pub extensions_archives: Vec<String>,
+    pub extensions: Vec<ExtensionFile>,
+    pub extensions_archives: Vec<ExtensionArchive>,
     pub tick_rate: String,
-    pub working_directories: VecDeque<WorkingPath>,
-    // pub working_directories_line_index: HashMap<String, i32>,
-    // Directory for current completions
     pub working_directory: PathBuf,
     pub play_mode: PlayMode,
     pub log_level: LevelFilter,
     pub current_file: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumIter)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionFile {
+    Mp3,
+    Mp4,
+    Avi,
+    Ogg,
+    M4a,
+    Opus,
+    Flac,
+    Zip,
+}
+
+impl ExtensionFile {
+    pub fn matches_str(&self, s: &str) -> bool {
+        match self {
+            Self::Mp3 => s.eq_ignore_ascii_case("mp3"),
+            Self::Mp4 => s.eq_ignore_ascii_case("av4"),
+            Self::Avi => s.eq_ignore_ascii_case("avi"),
+            Self::Ogg => s.eq_ignore_ascii_case("ogg"),
+            Self::M4a => s.eq_ignore_ascii_case("m4a"),
+            Self::Opus => s.eq_ignore_ascii_case("opus"),
+            Self::Flac => s.eq_ignore_ascii_case("flac"),
+            Self::Zip => s.eq_ignore_ascii_case("zip"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumIter)]
+#[serde(rename_all = "lowercase")]
+pub enum ExtensionArchive {
+    Zip,
+}
+
+impl ExtensionArchive {
+    pub fn matches_str(&self, s: &str) -> bool {
+        match self {
+            Self::Zip => s.eq_ignore_ascii_case("zip"),
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
-            extensions: vec!["mp3", "mp4", "avi", "ogg", "m4a", "opus", "flac"]
-                .into_iter()
-                .map(String::from)
-                .collect(),
-            extensions_archives: vec!["zip"].into_iter().map(String::from).collect(),
+            extensions: vec![
+                ExtensionFile::Mp3,
+                ExtensionFile::Mp4,
+                ExtensionFile::Avi,
+                ExtensionFile::Ogg,
+                ExtensionFile::M4a,
+                ExtensionFile::Opus,
+                ExtensionFile::Flac,
+            ],
+            extensions_archives: vec![ExtensionArchive::Zip],
             tick_rate: String::from("500"),
-            working_directories: VecDeque::from([
-                WorkingPath {
-                    path: String::from(
-                        get_audio_dir()
-                            .to_str()
-                            .unwrap_or(get_home_dir().to_str().unwrap()),
-                    ),
-                    status: Status::Active,
-                },
-                WorkingPath {
-                    path: String::from(
-                        get_cache_dir()
-                            .to_str()
-                            .expect("Could not find cache directory."),
-                    ),
-                    status: Status::Cache,
-                },
-            ]),
             working_directory: PathBuf::from(get_audio_dir().into_os_string()),
             play_mode: PlayMode::Queue,
             log_level: LevelFilter::Info,

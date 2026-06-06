@@ -3,15 +3,38 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
+use strum::IntoEnumIterator;
 use walkdir::{DirEntry, WalkDir};
 
-pub fn get_direntries(path: &Path, extentions: &[String]) -> Vec<DirEntry> {
+use super::config::ExtensionArchive;
+use super::config::ExtensionFile;
+
+pub fn get_files_sound(path: &Path) -> Vec<DirEntry> {
     WalkDir::new(path)
         .into_iter()
         .filter_map(move |e| {
             let dir_entry = e.as_ref().ok()?;
-            let extension_archives = dir_entry.path().extension()?.to_string_lossy().to_string();
-            if dir_entry.file_type().is_file() && extentions.contains(&extension_archives) {
+            let file_extension = dir_entry.path().extension()?.to_string_lossy().to_string();
+            let matches_extension_archive =
+                ExtensionArchive::iter().any(|extension| extension.matches_str(&file_extension));
+            if dir_entry.file_type().is_file() && matches_extension_archive {
+                e.ok()
+            } else {
+                None
+            }
+        })
+        .collect_vec()
+}
+
+pub fn get_files_archive(path: &Path) -> Vec<DirEntry> {
+    WalkDir::new(path)
+        .into_iter()
+        .filter_map(move |e| {
+            let dir_entry = e.as_ref().ok()?;
+            let file_extension = dir_entry.path().extension()?.to_string_lossy().to_string();
+            let matches_extension_archive =
+                ExtensionArchive::iter().any(|extension| extension.matches_str(&file_extension));
+            if dir_entry.file_type().is_file() && matches_extension_archive {
                 e.ok()
             } else {
                 None
@@ -21,15 +44,10 @@ pub fn get_direntries(path: &Path, extentions: &[String]) -> Vec<DirEntry> {
 }
 
 /// Uncompress archives to cache directory
-pub fn process_archives(paths: &[String], extensions_archives: &Vec<String>, cache_dir: &PathBuf) {
-    let archive_lines = paths
-        .iter()
-        // Avoid entirely scanning cache directory
-        .filter(|direntry| **direntry != cache_dir.to_string_lossy())
-        .flat_map(|direntry| get_direntries(&PathBuf::from(direntry), extensions_archives))
-        .collect_vec();
+pub fn process_archives(path: &String, cache_dir: &PathBuf) {
+    let files = get_files_sound(&PathBuf::from(path));
 
-    archive_lines
+    files
         .iter()
         .filter_map(|archive| {
             let file_name = PathBuf::from(archive.file_name());

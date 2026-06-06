@@ -29,29 +29,31 @@ impl EchoArea {
         let messages = Arc::new(RwLock::new(vec![String::from(""); ECHO_SIZE as usize]));
         let messages_build = messages.clone();
 
-        thread::spawn(move || loop {
-            match closure_receiver.recv() {
-                Ok(message_event) => {
-                    let mut message = message.write().unwrap();
-                    *message = message_event.clone();
-                    let mut messages = messages.write().unwrap();
+        thread::spawn(move || {
+            loop {
+                match closure_receiver.recv() {
+                    Ok(message_event) => {
+                        let mut message = message.write().unwrap();
+                        *message = message_event.clone();
+                        let mut messages = messages.write().unwrap();
 
-                    let now = offset::Local::now();
-                    let formatted_now = now.format("%d/%m/%Y %H:%M:%S");
-                    let string_now = formatted_now.to_string();
+                        let now = offset::Local::now();
+                        let formatted_now = now.format("%d/%m/%Y %H:%M:%S");
+                        let string_now = formatted_now.to_string();
 
-                    (*messages).push(format!("[{string_now}] {message_event}"));
+                        (*messages).push(format!("[{string_now}] {message_event}"));
 
-                    let messages_length = messages.len() as i32 - ECHO_SIZE;
+                        let messages_length = messages.len() as i32 - ECHO_SIZE;
 
-                    if messages_length > 0 {
-                        messages.drain(0..(messages_length as usize));
+                        if messages_length > 0 {
+                            messages.drain(0..(messages_length as usize));
+                        }
+
+                        debug!("ECHO {}", *message);
                     }
-
-                    debug!("ECHO {}", *message);
-                }
-                Err(e) => println!("watch error: {e}"),
-            };
+                    Err(e) => println!("watch error: {e}"),
+                };
+            }
         });
 
         EchoArea {

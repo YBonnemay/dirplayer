@@ -1,9 +1,9 @@
+use crate::KeyCode;
+use crate::KeyModifiers;
 use crate::directories::Directories;
 use crate::directories::State;
 use crate::files::Files;
 use crate::switch_play_mode;
-use crate::KeyCode;
-use crate::KeyModifiers;
 use crossterm::event::Event;
 use crossterm::event::KeyEvent;
 use ratatui::Frame;
@@ -26,7 +26,6 @@ impl App {
     pub fn new() -> App {
         let mut files = Files::new();
         let directories = Directories::new();
-        files.update_paths(&directories.working_directories);
         files.update_lines();
         files.update_lines_filtered();
         files.watch_archives();

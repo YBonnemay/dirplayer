@@ -1,15 +1,16 @@
+use crate::AppState;
+use crate::EventEnum;
 use crate::app::Chord;
 use crate::utils;
 use crate::utils::completion::get_path_completions;
 use crate::utils::config::Config;
 use crate::utils::config::Status;
 use crate::utils::config::WorkingPath;
-use crate::AppState;
-use crate::EventEnum;
 use cocotte::sub_app::SubApp;
 use crossterm::event::KeyCode;
 use crossterm::event::KeyModifiers;
 use itertools::Itertools;
+use ratatui::Frame;
 use ratatui::layout::Constraint;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -17,7 +18,6 @@ use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::TableState;
-use ratatui::Frame;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -36,14 +36,13 @@ pub struct Directories {
     pub filter: String,
     pub rotate_idx: i32,
     pub working_directory: PathBuf,
-    pub working_directories: VecDeque<WorkingPath>,
     pub line_index: i32,
     pub state: State,
 }
 
 impl Directories {
     pub fn new() -> Directories {
-        let config = utils::config::get_config();
+        let config = utils::config::get_set_config();
         let scoring = Scoring {
             bonus_consecutive: 64,
             bonus_word_start: 1,
@@ -51,7 +50,6 @@ impl Directories {
             penalty_distance: 16,
         };
         let working_directory = config.working_directory;
-        let working_directories = config.working_directories;
         Directories {
             completions: get_path_completions(&working_directory),
             displayable_completions: vec![],
@@ -59,91 +57,69 @@ impl Directories {
             scoring,
             rotate_idx: 0,
             working_directory,
-            working_directories,
             line_index: 0,
             state: State::Base,
         }
     }
 
     pub fn get_displayable_completions(&self) -> Vec<Vec<Span>> {
-        let completions = VecDeque::from(self.completions.clone());
+        vec![vec![]]
+        // let completions = VecDeque::from(self.completions.clone());
 
-        let filter = self.filter.clone();
+        // let filter = self.filter.clone();
 
-        let mut displayable_completions = completions
-            .iter()
-            .cloned()
-            .filter_map(|completion| {
-                if filter.is_empty() {
-                    return Some(vec![Span::from(completion.to_string_lossy().into_owned())]);
-                }
-                if let Some(matched) = FuzzySearch::new(&self.filter, &completion.to_string_lossy())
-                    .case_insensitive()
-                    .score_with(&self.scoring)
-                    .best_match()
-                {
-                    let score = matched.score();
-                    if score <= 0 {
-                        return None;
-                    }
+        // let mut displayable_completions = completions
+        //     .iter()
+        //     .cloned()
+        //     .filter_map(|completion| {
+        //         if filter.is_empty() {
+        //             return Some(vec![Span::from(completion.to_string_lossy().into_owned())]);
+        //         }
+        //         if let Some(matched) = FuzzySearch::new(&self.filter, &completion.to_string_lossy())
+        //             .case_insensitive()
+        //             .score_with(&self.scoring)
+        //             .best_match()
+        //         {
+        //             let score = matched.score();
+        //             if score <= 0 {
+        //                 return None;
+        //             }
 
-                    let indices = matched.matched_indices().copied().collect_vec();
-                    let added_spans = utils::style::string_to_styled_spans(&completion, indices);
-                    Some(added_spans)
-                } else {
-                    None
-                }
-            })
-            .collect_vec();
+        //             let indices = matched.matched_indices().copied().collect_vec();
+        //             if let Some(completion_str) = completion.as_os_str().to_str() {
+        //                 let added_spans =
+        //                     utils::style::string_to_styled_spans(completion_str, &indices);
+        //                 Some(added_spans)
+        //             } else {
+        //                 None
+        //             }
+        //         } else {
+        //             None
+        //         }
+        //     })
+        //     .collect_vec();
 
-        if !displayable_completions.is_empty() {
-            let rotate = self
-                .rotate_idx
-                .rem_euclid(displayable_completions.len() as i32);
-            displayable_completions.rotate_right(rotate as usize);
-        }
+        // if !displayable_completions.is_empty() {
+        //     let rotate = self
+        //         .rotate_idx
+        //         .rem_euclid(displayable_completions.len() as i32);
+        //     displayable_completions.rotate_right(rotate as usize);
+        // }
 
-        let pipes = vec![
-            vec![Span::from(String::from(" | "))];
-            displayable_completions.len().saturating_sub(1)
-        ];
+        // let pipes = vec![
+        //     vec![Span::from(String::from(" | "))];
+        //     displayable_completions.len().saturating_sub(1)
+        // ];
 
-        displayable_completions = displayable_completions
-            .into_iter()
-            .interleave(pipes)
-            .collect_vec();
+        // displayable_completions = displayable_completions
+        //     .into_iter()
+        //     .interleave(pipes)
+        //     .collect_vec();
 
-        displayable_completions
-    }
-
-    fn update_working_directories(&mut self) {
-        let candidate = self.working_directory.to_string_lossy();
-        log::debug!("update_working_directories");
-        if self
-            .working_directories
-            .iter()
-            .any(|WorkingPath { path, .. }| path.eq(&candidate) || candidate.starts_with(path))
-        {
-            return;
-        }
-        log::debug!("update_working_directories after");
-
-        self.working_directories.push_back(WorkingPath {
-            path: String::from(candidate),
-            status: Status::Active,
-        });
-
-        //
-        let config = utils::config::get_config();
-        utils::config::update_config(&Config {
-            working_directories: self.working_directories.clone(),
-            ..config
-        });
-        self.line_index += 1;
+        // displayable_completions
     }
 
     pub fn handle_event(&mut self, chord: Chord) {
-        let edit_index = self.working_directories.len() - 1;
         match self.state {
             State::Editing => match chord {
                 // (_, KeyCode::Down) => {}
@@ -209,34 +185,20 @@ impl Directories {
                         self.filter = chars.as_str().to_string();
                     }
                 }
-                (_, KeyCode::Enter) => {
-                    self.update_working_directories();
-                }
+                (_, KeyCode::Enter) => {}
                 (_, KeyCode::Char(c)) => {
                     self.filter = format!("{}{}", self.filter, c);
                 }
                 _ => {}
             },
             State::Base => match chord {
-                (_, KeyCode::Down) => {
-                    if self.line_index as usize >= edit_index {
-                        self.state = State::Editing;
-                    }
-
-                    if (self.line_index as usize) < edit_index + 1 {
-                        self.line_index += 1;
-                    }
-                }
+                (_, KeyCode::Down) => {}
                 (_, KeyCode::Up) => {
                     if self.line_index >= 0 {
                         self.line_index -= 1;
                     }
                 }
-                (_, KeyCode::Char(c)) => {
-                    if c == 'k' {
-                        self.working_directories.remove(self.line_index as usize);
-                    }
-                }
+                (_, KeyCode::Char(c)) => {}
                 _ => {}
             },
         }

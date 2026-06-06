@@ -5,7 +5,8 @@ use crate::backend_rodio::Rodio;
 use crate::backend_trait::AudioBackend;
 use crate::constants::SongState;
 use crate::utils;
-use crate::utils::config::{Config, Status, WorkingPath};
+use crate::utils::config::{Config, ExtensionArchive, ExtensionFile, Status, WorkingPath};
+use crate::utils::directory::get_files_sound;
 use chrono::{Datelike, NaiveDate};
 use chrono::{NaiveDateTime, Utc};
 use crossbeam_channel::unbounded;
@@ -13,8 +14,8 @@ use crossterm::event::poll;
 use crossterm::event::{KeyCode, KeyModifiers};
 use itertools::Itertools;
 use log::debug;
-use notify::{watcher, RecursiveMode, Watcher};
-use rand::{thread_rng, Rng};
+use notify::{RecursiveMode, Watcher, watcher};
+use rand::{Rng, thread_rng};
 use ratatui::Frame;
 use std::cmp;
 use std::collections::VecDeque;
@@ -44,14 +45,14 @@ pub struct Files {
     #[cfg(feature = "mpv")]
     pub mpv_client: Mpv,
 
-    pub paths: Arc<RwLock<Vec<String>>>,
+    pub path: Arc<RwLock<String>>,
     // pub path: Arc<RwLock<PathBuf>>,
     pub receiver: crossbeam_channel::Receiver<std::result::Result<notify::Event, notify::Error>>,
     pub rodio_client: Rodio,
     pub dir_changed: Arc<RwLock<bool>>,
     pub watcher: notify::RecommendedWatcher,
-    pub extensions: Vec<String>,
-    extensions_archives: Vec<String>,
+    pub extensions: Vec<ExtensionFile>,
+    extensions_archives: Vec<ExtensionArchive>,
 }
 
 impl Files {
@@ -60,13 +61,11 @@ impl Files {
         let mut watcher = watcher(sender.clone(), Duration::from_secs(1)).unwrap();
 
         let config = utils::config::get_config();
-        let default_paths = config.working_directories.clone();
+        let default_path = config.working_directory.clone();
 
-        default_paths.iter().for_each(|working_path| {
-            watcher
-                .watch(&working_path.path, RecursiveMode::Recursive)
-                .unwrap();
-        });
+        watcher
+            .watch(&default_path, RecursiveMode::Recursive)
+            .unwrap();
 
         let scoring = Scoring {
             bonus_consecutive: 64,
@@ -76,10 +75,10 @@ impl Files {
 
         log::debug!("new");
 
-        let paths = default_paths
-            .iter()
-            .map(|WorkingPath { path, .. }| (*path).clone())
-            .collect_vec();
+        let path = WorkingPath {
+            path: default_path.to_string_lossy().to_string(),
+            status: Status::Active,
+        };
 
         let current_file = config.current_file;
         Files {
@@ -94,7 +93,7 @@ impl Files {
             #[cfg(feature = "mpv")]
             mpv_client: Mpv::new(),
             rodio_client: Rodio::new(),
-            paths: Arc::new(RwLock::new(paths)),
+            path: Arc::new(RwLock::new(path.path)),
             receiver,
             dir_changed: Arc::new(RwLock::new(false)),
             watcher,
@@ -104,18 +103,9 @@ impl Files {
     }
 
     pub fn update_lines(&mut self) {
-        let paths: Vec<PathBuf> = self
-            .paths
-            .read()
-            .unwrap()
-            .iter()
-            .map(PathBuf::from)
-            .collect_vec();
+        let path: PathBuf = PathBuf::from(self.path.read().unwrap().clone());
 
-        let mut new_lines = paths
-            .into_iter()
-            .flat_map(|path| directory::get_direntries(&path, &self.extensions))
-            .collect_vec();
+        let mut new_lines = directory::get_files_sound(&path);
 
         new_lines.sort_by(|a, b| {
             let creation_a = a.metadata().unwrap().created().unwrap();
@@ -127,27 +117,15 @@ impl Files {
         *lines = new_lines;
     }
 
-    pub fn update_paths(&mut self, new_working_paths: &VecDeque<WorkingPath>) {
-        let new_paths = new_working_paths
-            .iter()
-            .filter(|new_working_path| new_working_path.status == Status::Active)
-            .map(|new_working_path| new_working_path.path.clone())
-            .collect_vec();
-        let paths = self.paths.clone();
-        let unwrapped_path = paths.read().unwrap().clone();
-        unwrapped_path
-            .iter()
-            .for_each(|path| match self.watcher.unwatch(path) {
-                Ok(_) | Err(_) => {}
-            });
-        unwrapped_path.iter().for_each(|path| {
-            match self.watcher.watch(path, RecursiveMode::Recursive) {
-                Ok(_) | Err(_) => {}
-            }
-        });
+    pub fn update_paths(&mut self, new_working_path: &WorkingPath) {
+        let path = self.path.clone();
+        let unwrapped_path = path.read().unwrap().clone();
+        self.watcher.unwatch(unwrapped_path);
+        self.watcher
+            .watch(&new_working_path.path, RecursiveMode::Recursive);
 
-        let mut unwrapped_path = paths.write().unwrap();
-        *unwrapped_path = new_paths;
+        let mut unwrapped_path = path.write().unwrap();
+        *unwrapped_path = new_working_path.path.to_string();
 
         self.line_index = 0;
     }
@@ -156,15 +134,17 @@ impl Files {
         let receiver = self.receiver.clone();
         let dir_changed = self.dir_changed.clone();
         // Wait here for directory changes
-        thread::spawn(move || loop {
-            match receiver.recv() {
-                Ok(_event) => {
-                    // Send event resize instead
-                    let mut dir_changed = dir_changed.write().unwrap();
-                    *dir_changed = true;
-                }
-                Err(e) => println!("watch error: {:?}", e),
-            };
+        thread::spawn(move || {
+            loop {
+                match receiver.recv() {
+                    Ok(_event) => {
+                        // Send event resize instead
+                        let mut dir_changed = dir_changed.write().unwrap();
+                        *dir_changed = true;
+                    }
+                    Err(e) => println!("watch error: {:?}", e),
+                };
+            }
         });
     }
 
@@ -201,42 +181,42 @@ impl Files {
     }
 
     pub fn handle_event(&mut self, frame: &Frame, chord: Chord) {
-        let chunks = crate::ui::get_chunks(frame);
-        let height = chunks[1].height;
-        match chord.1 {
-            KeyCode::Down => self.lines_down(1),
-            KeyCode::Up => self.lines_up(1),
-            KeyCode::Enter => {
-                self.play_file();
-            }
-            KeyCode::PageDown => {
-                let slice_size_half = height / 2;
-                self.lines_down(slice_size_half as i32)
-            }
-            KeyCode::PageUp => {
-                let slice_size_half = height / 2;
-                self.lines_up(slice_size_half as i32)
-            }
-            KeyCode::Char(c) => {
-                log::debug!("EVENT {:?}", c);
-                if c == 'n' && chord.0 == KeyModifiers::CONTROL {
-                    self.play_next();
-                } else if c == 'p' && chord.0 == KeyModifiers::CONTROL {
-                    self.lines_up(1);
-                    self.play_next();
-                } else {
-                    self.filter = format!("{}{}", self.filter, c);
-                    self.update_lines_filtered();
-                }
-            }
-            KeyCode::Backspace => {
-                let mut chars = self.filter.chars();
-                chars.next_back();
-                self.filter = chars.as_str().to_string();
-                self.update_lines_filtered();
-            }
-            _ => (),
-        }
+        // let chunks = crate::ui::get_chunks(frame);
+        // let height = chunks[1].height;
+        // match chord.1 {
+        //     KeyCode::Down => self.lines_down(1),
+        //     KeyCode::Up => self.lines_up(1),
+        //     KeyCode::Enter => {
+        //         self.play_file();
+        //     }
+        //     KeyCode::PageDown => {
+        //         let slice_size_half = height / 2;
+        //         self.lines_down(slice_size_half as i32)
+        //     }
+        //     KeyCode::PageUp => {
+        //         let slice_size_half = height / 2;
+        //         self.lines_up(slice_size_half as i32)
+        //     }
+        //     KeyCode::Char(c) => {
+        //         log::debug!("EVENT {:?}", c);
+        //         if c == 'n' && chord.0 == KeyModifiers::CONTROL {
+        //             self.play_next();
+        //         } else if c == 'p' && chord.0 == KeyModifiers::CONTROL {
+        //             self.lines_up(1);
+        //             self.play_next();
+        //         } else {
+        //             self.filter = format!("{}{}", self.filter, c);
+        //             self.update_lines_filtered();
+        //         }
+        //     }
+        //     KeyCode::Backspace => {
+        //         let mut chars = self.filter.chars();
+        //         chars.next_back();
+        //         self.filter = chars.as_str().to_string();
+        //         self.update_lines_filtered();
+        //     }
+        //     _ => (),
+        // }
     }
 
     pub fn play_file(&mut self) {
@@ -424,13 +404,14 @@ impl Files {
     pub fn startup(&mut self) {}
 
     pub fn watch_archives(&mut self) {
-        let paths = self.paths.read().unwrap().clone();
-        let extensions_archives = self.extensions_archives.clone();
+        let path = self.path.read().unwrap().clone();
         let cache_dir = utils::config::get_cache_dir();
 
-        thread::spawn(move || loop {
-            if poll(Duration::from_millis(1000)).unwrap() {
-                utils::directory::process_archives(&paths, &extensions_archives, &cache_dir);
+        thread::spawn(move || {
+            loop {
+                if poll(Duration::from_millis(1000)).unwrap() {
+                    utils::directory::process_archives(&path, &cache_dir);
+                }
             }
         });
     }
