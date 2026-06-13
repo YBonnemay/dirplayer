@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs,
     path::{Path, PathBuf},
 };
@@ -11,7 +12,7 @@ use itertools::Itertools;
 /// vector is returned.
 ///
 /// The returned values are directory names only, not full paths.
-pub fn get_path_completions(path: &Path) -> Vec<PathBuf> {
+pub fn path_to_completions(path: &Path) -> VecDeque<PathBuf> {
     match fs::read_dir(path) {
         Ok(paths) => paths
             .filter_map(|e| {
@@ -20,9 +21,9 @@ pub fn get_path_completions(path: &Path) -> Vec<PathBuf> {
                 if !metadata.is_dir() {
                     return None;
                 }
-                Some(PathBuf::from(e_ref.path()))
+                e_ref.path().strip_prefix(&path).ok().map(PathBuf::from)
             })
-            .collect_vec(),
-        Err(_) => vec![],
+            .collect(),
+        Err(_) => VecDeque::default(),
     }
 }

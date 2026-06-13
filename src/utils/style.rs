@@ -7,20 +7,53 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn string_to_styled_spans<'a>(raw_string: &'a str, indices: &[usize]) -> Vec<Span<'a>> {
+pub fn string_to_styled_spans(raw_string: &str, indices: &[usize]) -> Vec<Span<'static>> {
     let bold_style = Style::default()
         .fg(Color::Green)
         .add_modifier(Modifier::BOLD);
-    let mut spans = vec![];
-    let mut next_match = 0;
 
-    for (i, c) in raw_string.chars().enumerate() {
-        if next_match < indices.len() && i == indices[next_match] {
-            next_match += 1;
-            spans.push(Span::styled(c.to_string(), bold_style));
-        } else {
-            spans.push(Span::raw(c.to_string()));
+    if raw_string.is_empty() {
+        return vec![];
+    }
+
+    let mut spans = Vec::new();
+    let mut matches = indices.iter().copied().peekable();
+
+    let mut segment_start = 0usize;
+    let mut segment_is_match: Option<bool> = None;
+
+    for (char_pos, (byte_idx, _)) in raw_string.char_indices().enumerate() {
+        let is_match = matches.peek().copied() == Some(char_pos);
+
+        while matches.peek().copied() == Some(char_pos) {
+            matches.next();
         }
+
+        match segment_is_match {
+            None => {
+                segment_is_match = Some(is_match);
+            }
+            Some(current) if current != is_match => {
+                let slice = &raw_string[segment_start..byte_idx];
+                spans.push(if current {
+                    Span::styled(slice.to_string(), bold_style)
+                } else {
+                    Span::raw(slice.to_string())
+                });
+                segment_start = byte_idx;
+                segment_is_match = Some(is_match);
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(current) = segment_is_match {
+        let slice = &raw_string[segment_start..];
+        spans.push(if current {
+            Span::styled(slice.to_string(), bold_style)
+        } else {
+            Span::raw(slice.to_string())
+        });
     }
 
     spans

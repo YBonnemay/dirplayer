@@ -42,10 +42,11 @@ pub enum EventEnum {
     Key(KeyEvent),
 }
 
-#[derive(Default)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Focus {
     #[default]
-    Input,
+    Directories,
+    Files,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
@@ -64,18 +65,18 @@ pub struct WorkingPath {
 
 #[derive(Default)]
 pub struct AppState {
-    input_string: String,
-    should_quit: bool,
-    focus: Focus,
+    pub directory_filter: String,
+    pub file_filter: String,
+    pub focus: Focus,
     pub current_directory: PathBuf,
 }
 
 impl AppState {
     pub fn default() -> Self {
         Self {
-            input_string: String::default(),
-            should_quit: false,
-            focus: Focus::Input,
+            directory_filter: String::default(),
+            file_filter: String::default(),
+            focus: Focus::Directories,
             current_directory: config::get_audio_dir(),
         }
     }
@@ -154,7 +155,7 @@ pub async fn start() -> Result<()> {
             }
         }
         app.handle_input(&mut app_event, &mut app_state);
-        app.draw()?;
+        app.draw(&mut app_state)?;
     }
 
     Ok(())
