@@ -5,6 +5,7 @@ use log::{debug, error};
 use rodio::{Decoder, OutputStream};
 use std::fs::File;
 use std::io::BufReader;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
@@ -13,7 +14,6 @@ enum EventType {
     Play,
     Pause,
     SilentPause,
-    Stop,
     Tick,
 }
 
@@ -25,7 +25,34 @@ struct Event {
 pub struct Rodio {
     sender: crossbeam_channel::Sender<Event>,
     state: Arc<RwLock<SongState>>,
-    file_name: Arc<RwLock<String>>,
+}
+
+/// Opens a decoder for `file_name`, returning `None` for unreadable or
+/// undecodable files. Decoding is isolated because some backend decoders panic
+/// on malformed input, which would otherwise take the audio thread down.
+fn open_decoder(file_name: &str) -> Option<Decoder<BufReader<File>>> {
+    let file = match File::open(file_name) {
+        Ok(file) => file,
+        Err(e) => {
+            error!("Could not open {file_name}: {e}");
+            return None;
+        }
+    };
+
+    let source = BufReader::new(file);
+    debug! {"source: {:?}", source}
+
+    match catch_unwind(AssertUnwindSafe(|| Decoder::new(source))) {
+        Ok(Ok(decoder)) => Some(decoder),
+        Ok(Err(e)) => {
+            error!("Could not decode {file_name}: {e}");
+            None
+        }
+        Err(_) => {
+            error!("Decoder panicked on {file_name}");
+            None
+        }
+    }
 }
 
 impl Rodio {
@@ -34,18 +61,17 @@ impl Rodio {
         let state = Arc::new(RwLock::new(SongState::Ended));
         let state_new = state.clone();
 
-        let file_name = Arc::new(RwLock::new(String::default()));
-        let file_name_new = file_name.clone();
-
-        thread::spawn(move || -> ! {
+        thread::spawn(move || {
             let (_stream, stream_handle) = OutputStream::try_default().unwrap();
             let mut sink = rodio::Sink::try_new(&stream_handle).unwrap();
             loop {
                 let event: Event = match receiver.recv() {
                     Ok(e) => e,
                     Err(err) => {
-                        debug!("Error receiving {}", err);
-                        panic!("Error event: {err:?}");
+                        // The sender is gone: the application is shutting down.
+                        debug!("Stopping audio thread: {err}");
+                        sink.stop();
+                        return;
                     }
                 };
                 match event.event_type {
@@ -57,21 +83,18 @@ impl Rodio {
                             sink.stop();
                             sink = rodio::Sink::try_new(&stream_handle).unwrap();
                         }
-                        let source = BufReader::new(File::open(event.file_name.clone()).unwrap());
-                        debug! {"source: {:?}", source}
-                        match Decoder::new(source) {
-                            Ok(decoder) => {
+
+                        match open_decoder(&event.file_name) {
+                            Some(decoder) => {
                                 sink.append(decoder);
                                 sink.play();
                             }
-                            Err(e) => {
-                                error! {"{e}"};
+                            None => {
+                                *state.write().unwrap() = SongState::Ended;
                             }
                         }
 
                         debug! {"Decoder done"};
-
-                        *file_name.write().unwrap() = event.file_name;
 
                         // echo_area_sender
                         //     .send(format!(
@@ -112,11 +135,6 @@ impl Rodio {
                         debug!("switched to {} {}", SongState::Paused, event.file_name);
                         *state.write().unwrap() = SongState::Paused;
                     }
-                    EventType::Stop => {
-                        sink.stop();
-                        debug!("switched to {} {}", SongState::Ended, event.file_name);
-                        *state.write().unwrap() = SongState::Ended;
-                    }
                     EventType::Tick => {
                         // Housekeeping
                         if sink.empty() {
@@ -136,72 +154,48 @@ impl Rodio {
         Self {
             sender,
             state: state_new,
-            file_name: file_name_new,
+        }
+    }
+
+    /// Sends an event to the audio thread. A dead audio thread must not bring
+    /// the interface down, so failures are logged and the song marked ended.
+    fn send(&self, event_type: EventType, file_name: String) {
+        if let Err(e) = self.sender.send(Event {
+            event_type,
+            file_name,
+        }) {
+            error!("Audio thread is gone: {e}");
+            *self.state.write().unwrap() = SongState::Ended;
         }
     }
 }
 
 impl AudioBackend for Rodio {
-    fn stop(&mut self) {
-        self.sender
-            .send(Event {
-                event_type: EventType::Stop,
-                file_name: String::default(),
-            })
-            .unwrap();
-    }
-
     fn start(&mut self, file_name: &str) {
         debug!("starting {}", file_name);
-
-        self.sender
-            .send(Event {
-                event_type: EventType::Start,
-                file_name: file_name.to_string(),
-            })
-            .unwrap();
+        self.send(EventType::Start, file_name.to_string());
     }
 
     fn pause(&mut self) {
         log::debug!("paused ");
-        self.sender
-            .send(Event {
-                event_type: EventType::Pause,
-                file_name: String::default(),
-            })
-            .unwrap();
+        self.send(EventType::Pause, String::default());
     }
 
     fn silent_pause(&mut self) {
-        self.sender
-            .send(Event {
-                event_type: EventType::SilentPause,
-                file_name: String::default(),
-            })
-            .unwrap();
+        self.send(EventType::SilentPause, String::default());
     }
 
     fn resume(&mut self) {
         log::debug!("resumed ");
-        self.sender
-            .send(Event {
-                event_type: EventType::Play,
-                file_name: String::default(),
-            })
-            .unwrap();
+        self.send(EventType::Play, String::default());
     }
 
-    fn busy(&self) -> bool {
+    fn busy(&mut self) -> bool {
         *self.state.read().unwrap() != SongState::Ended
     }
 
-    fn state(&self) -> SongState {
-        self.sender
-            .send(Event {
-                event_type: EventType::Tick,
-                file_name: String::default(),
-            })
-            .unwrap();
+    fn state(&mut self) -> SongState {
+        self.send(EventType::Tick, String::default());
         *self.state.read().unwrap()
     }
 
@@ -213,11 +207,6 @@ impl AudioBackend for Rodio {
                 log::debug!("toggling ended song");
             }
         }
-    }
-
-    fn file_name(&self) -> String {
-        let test = self.file_name.read().unwrap();
-        (*test).to_string()
     }
 }
 

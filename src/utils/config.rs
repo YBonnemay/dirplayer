@@ -4,17 +4,15 @@ use dirs::config_dir;
 use dirs::home_dir;
 use log::LevelFilter;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::VecDeque;
 use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
-use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 static CONFIG_PATH: &str = "dirplayer/config.json";
 static CACHE_PATH: &str = "dirplayer";
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlayMode {
     Queue,
     Random,
@@ -74,6 +72,7 @@ pub enum ExtensionFile {
     Ogg,
     M4a,
     Opus,
+    Webm,
     Flac,
     Zip,
 }
@@ -82,14 +81,28 @@ impl ExtensionFile {
     pub fn matches_str(&self, s: &str) -> bool {
         match self {
             Self::Mp3 => s.eq_ignore_ascii_case("mp3"),
-            Self::Mp4 => s.eq_ignore_ascii_case("av4"),
+            Self::Mp4 => s.eq_ignore_ascii_case("mp4"),
             Self::Avi => s.eq_ignore_ascii_case("avi"),
             Self::Ogg => s.eq_ignore_ascii_case("ogg"),
             Self::M4a => s.eq_ignore_ascii_case("m4a"),
             Self::Opus => s.eq_ignore_ascii_case("opus"),
+            Self::Webm => s.eq_ignore_ascii_case("webm"),
             Self::Flac => s.eq_ignore_ascii_case("flac"),
             Self::Zip => s.eq_ignore_ascii_case("zip"),
         }
+    }
+
+    /// Archives are listed as files but cannot be handed to an audio backend.
+    pub fn is_playable(&self) -> bool {
+        !matches!(self, Self::Zip)
+    }
+
+    /// Whether the pure Rust backend can be trusted with this extension.
+    ///
+    /// Symphonia has no Opus decoder and no Matroska/WebM demuxer, and its
+    /// ISO-MP4 reader panics on some files, so those go to mpv when available.
+    pub fn is_pure_rust(&self) -> bool {
+        matches!(self, Self::Mp3 | Self::Flac)
     }
 }
 
@@ -117,6 +130,7 @@ impl Default for Config {
                 ExtensionFile::Ogg,
                 ExtensionFile::M4a,
                 ExtensionFile::Opus,
+                ExtensionFile::Webm,
                 ExtensionFile::Flac,
             ],
             extensions_archives: vec![ExtensionArchive::Zip],

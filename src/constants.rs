@@ -12,5 +12,3 @@ impl fmt::Display for SongState {
         write!(f, "{:?}", self)
     }
 }
-
-pub const ECHO_SIZE: i32 = 5;

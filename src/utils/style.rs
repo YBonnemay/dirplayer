@@ -1,10 +1,6 @@
 use ratatui::{
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
-use std::{
-    cmp::Ordering,
-    path::{Path, PathBuf},
+    text::Span,
 };
 
 pub fn string_to_styled_spans(raw_string: &str, indices: &[usize]) -> Vec<Span<'static>> {

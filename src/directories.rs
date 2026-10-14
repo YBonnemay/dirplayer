@@ -1,7 +1,9 @@
 use crate::AppState;
 use crate::EventEnum;
 use crate::Focus;
-use crate::app::Chord;
+use crate::PlayRequest;
+use crate::utils::config;
+use crate::utils::directory::is_playable;
 use crate::utils::style::string_to_styled_spans;
 use cocotte::sub_app::SubApp;
 use crossterm::event::KeyCode;
@@ -26,13 +28,11 @@ pub enum State {
 pub struct Directories {
     pub scoring: Scoring,
     pub working_directory: PathBuf,
-    pub line_index: usize,
     pub state: State,
     pub directories: Vec<PathBuf>,
     pub filtered_directory_indices: Vec<usize>,
     pub displayed_directories: Vec<Line<'static>>,
     pub files: Vec<PathBuf>,
-    pub filtered_file_indices: Vec<usize>,
     pub displayed_files: Vec<Line<'static>>,
 }
 
@@ -49,11 +49,14 @@ fn get_entries(dir: &Path) -> (Vec<PathBuf>, Vec<PathBuf>) {
             let path = entry.path();
             if file_type.is_dir() {
                 directories.push(path);
-            } else if file_type.is_file() {
+            } else if file_type.is_file() && is_playable(&path) {
                 files.push(path);
             }
         }
     }
+
+    directories.sort();
+    files.sort();
 
     (directories, files)
 }
@@ -70,13 +73,11 @@ impl Directories {
         Directories {
             scoring,
             working_directory: PathBuf::default(),
-            line_index: 0,
             state: State::Base,
             directories: vec![],
             filtered_directory_indices: vec![],
             displayed_directories: vec![],
             files: vec![],
-            filtered_file_indices: vec![],
             displayed_files: vec![],
         }
     }
@@ -141,41 +142,57 @@ impl Directories {
         Some((label, indices))
     }
 
-    fn rebuild_file_view(&mut self, filter: &str) {
-        let mut filtered_file_indices = Vec::new();
+    fn rebuild_file_view(&mut self, app_state: &mut AppState) {
+        let mut visible_files = Vec::new();
         let mut displayed_files = Vec::new();
 
-        for (index, path) in self.files.iter().enumerate() {
-            if let Some((label, indices)) = self.file_match_indices(path, filter) {
-                filtered_file_indices.push(index);
+        for path in self.files.iter() {
+            if let Some((label, indices)) = self.file_match_indices(path, &app_state.file_filter) {
+                visible_files.push(path.clone());
                 displayed_files.push(Line::from(string_to_styled_spans(&label, &indices)));
             }
         }
 
-        self.filtered_file_indices = filtered_file_indices;
         self.displayed_files = displayed_files;
+        app_state.visible_files = visible_files;
     }
 
     fn visible_len(&self, focus: &Focus) -> usize {
         match focus {
             Focus::Directories => self.filtered_directory_indices.len(),
-            Focus::Files => self.filtered_file_indices.len(),
+            Focus::Files => self.displayed_files.len(),
         }
     }
 
-    fn move_up(&mut self) {
-        if self.line_index > 0 {
-            self.line_index -= 1;
+    fn move_up(&mut self, app_state: &mut AppState) {
+        if app_state.line_index > 0 {
+            app_state.line_index -= 1;
         }
     }
 
-    fn move_down(&mut self, focus: &Focus) {
-        if self.line_index + 1 < self.visible_len(focus) {
-            self.line_index += 1;
+    fn move_down(&mut self, app_state: &mut AppState) {
+        if app_state.line_index + 1 < self.visible_len(&app_state.focus) {
+            app_state.line_index += 1;
         }
     }
 
-    pub fn handle_event(&mut self, _chord: Chord) {}
+    fn selected_file(&self, app_state: &AppState) -> Option<PathBuf> {
+        app_state.visible_files.get(app_state.line_index).cloned()
+    }
+
+    /// Enters `path`, persists it as the working directory and rebuilds both views.
+    fn set_directory(&mut self, path: PathBuf, app_state: &mut AppState) {
+        app_state.current_directory = path;
+        app_state.directory_filter.clear();
+        app_state.file_filter.clear();
+        app_state.line_index = 0;
+
+        config::update_working_directory(&app_state.current_directory);
+
+        self.refresh_entries(&app_state.current_directory);
+        self.rebuild_directory_view(&app_state.directory_filter);
+        self.rebuild_file_view(app_state);
+    }
 }
 
 impl SubApp<EventEnum, AppState> for Directories {
@@ -184,41 +201,62 @@ impl SubApp<EventEnum, AppState> for Directories {
             EventEnum::Setup => {
                 self.refresh_entries(&app_state.current_directory);
                 self.rebuild_directory_view(&app_state.directory_filter);
-                self.rebuild_file_view(&app_state.file_filter);
+                self.rebuild_file_view(app_state);
+            }
+            EventEnum::Key(KeyEvent {
+                code: KeyCode::Char(c),
+                modifiers: KeyModifiers::CONTROL,
+                ..
+            }) => {
+                app_state.play_request = match c {
+                    'n' => Some(PlayRequest::Next),
+                    'p' => Some(PlayRequest::Previous),
+                    't' => Some(PlayRequest::Toggle),
+                    'r' => Some(PlayRequest::CyclePlayMode),
+                    _ => None,
+                };
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Esc, ..
             }) => {
                 app_state.focus = Focus::Directories;
+                app_state.line_index = 0;
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Up, ..
             }) => {
-                self.move_up();
+                self.move_up(app_state);
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Down,
                 ..
             }) => {
-                self.move_down(&app_state.focus);
+                self.move_down(app_state);
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Enter,
                 ..
-            }) if app_state.focus == Focus::Directories => {
-                self.rebuild_file_view(&app_state.file_filter);
-                app_state.focus = Focus::Files;
-            }
+            }) => match app_state.focus {
+                Focus::Directories => {
+                    self.rebuild_file_view(app_state);
+                    app_state.focus = Focus::Files;
+                    app_state.line_index = 0;
+                }
+                Focus::Files => {
+                    if let Some(path) = self.selected_file(app_state) {
+                        app_state.play_request = Some(PlayRequest::Play(path));
+                    }
+                }
+            },
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Tab, ..
             }) if app_state.focus == Focus::Directories => {
-                let Some(&index) = self.filtered_directory_indices.get(self.line_index) else {
+                let Some(&index) = self.filtered_directory_indices.get(app_state.line_index) else {
                     return;
                 };
 
-                app_state.current_directory = self.directories[index].clone();
-                self.refresh_entries(&app_state.current_directory);
-                self.rebuild_directory_view(&app_state.directory_filter);
+                let path = self.directories[index].clone();
+                self.set_directory(path, app_state);
             }
 
             EventEnum::Key(KeyEvent {
@@ -227,27 +265,28 @@ impl SubApp<EventEnum, AppState> for Directories {
             }) => match app_state.focus {
                 Focus::Directories => {
                     if app_state.directory_filter.is_empty() {
-                        if let Some(parent) = app_state.current_directory.parent() {
-                            app_state.current_directory = parent.to_path_buf();
+                        let parent = app_state.current_directory.parent().map(Path::to_path_buf);
+                        if let Some(parent) = parent {
+                            self.set_directory(parent, app_state);
                         }
                     } else {
                         app_state.directory_filter.pop();
+                        app_state.line_index = 0;
+                        self.rebuild_directory_view(&app_state.directory_filter);
                     }
-                    self.refresh_entries(&app_state.current_directory);
-                    self.rebuild_directory_view(&app_state.directory_filter);
                 }
                 Focus::Files => {
                     if !app_state.file_filter.is_empty() {
                         app_state.file_filter.pop();
-                        self.rebuild_file_view(&app_state.file_filter);
+                        app_state.line_index = 0;
+                        self.rebuild_file_view(app_state);
                     } else {
-                        if let Some(parent) = app_state.current_directory.parent() {
-                            app_state.current_directory = parent.to_path_buf();
+                        let parent = app_state.current_directory.parent().map(Path::to_path_buf);
+                        if let Some(parent) = parent {
+                            self.set_directory(parent, app_state);
                         }
-                        self.refresh_entries(&app_state.current_directory);
-                        self.rebuild_directory_view(&app_state.directory_filter);
-                        self.rebuild_directory_view(&app_state.directory_filter);
                         app_state.focus = Focus::Directories;
+                        app_state.line_index = 0;
                     }
                 }
             },
@@ -258,19 +297,19 @@ impl SubApp<EventEnum, AppState> for Directories {
                 Focus::Directories => {
                     app_state.directory_filter.push(*c);
                     self.rebuild_directory_view(&app_state.directory_filter);
-                    self.line_index = 0;
+                    app_state.line_index = 0;
                 }
                 Focus::Files => {
                     app_state.file_filter.push(*c);
-                    self.rebuild_file_view(&app_state.file_filter);
-                    self.line_index = 0;
+                    self.rebuild_file_view(app_state);
+                    app_state.line_index = 0;
                 }
             },
             _ => {}
         }
     }
 
-    fn render(&self, frame: &mut Frame, area: Rect, _title: &str, app_state: &mut AppState) {
+    fn render(&self, frame: &mut Frame, area: Rect, app_state: &mut AppState) {
         let focused = app_state.focus == Focus::Files;
 
         let title = match app_state.focus {
@@ -302,7 +341,7 @@ impl SubApp<EventEnum, AppState> for Directories {
         let mut state = ListState::default();
         let visible_len = self.visible_len(&app_state.focus);
         if visible_len != 0 {
-            state.select(Some(self.line_index.min(visible_len - 1)));
+            state.select(Some(app_state.line_index.min(visible_len - 1)));
         }
 
         frame.render_stateful_widget(list, area, &mut state);

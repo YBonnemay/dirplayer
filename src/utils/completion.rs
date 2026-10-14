@@ -4,8 +4,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use itertools::Itertools;
-
 /// Returns the names of child directories inside `path`.
 ///
 /// Non-directory entries are ignored. If `path` cannot be read, an empty

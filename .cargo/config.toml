@@ -1,0 +1,8 @@
+# libmpv2-sys asks the linker for `mpv` without telling it where to look, and
+# Homebrew's library directory is not on the default search path. Building
+# without the `mpv` feature needs none of this.
+[target.aarch64-apple-darwin]
+rustflags = ["-L", "/opt/homebrew/lib"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-L", "/usr/local/lib"]

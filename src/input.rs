@@ -1,26 +1,17 @@
 use crate::AppState;
 use crate::EventEnum;
 use crate::Focus;
-use crate::utils::completion::path_to_completions;
-use crate::utils::style::string_to_styled_spans;
 use cocotte::sub_app::SubApp;
-use crossterm::event::KeyCode;
-use crossterm::event::KeyEvent;
-use crossterm::event::KeyModifiers;
-use futures::SinkExt;
-use itertools::Itertools;
 use ratatui::Frame;
 use ratatui::layout::Constraint;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 use ratatui::widgets::Borders;
 use ratatui::widgets::Paragraph;
 use std::collections::VecDeque;
-use std::path::Path;
 use std::path::PathBuf;
-use sublime_fuzzy::{FuzzySearch, Scoring};
+use sublime_fuzzy::Scoring;
 
 pub struct Input {
     pub completions: VecDeque<PathBuf>, // The vector of completions relative to the cwd
@@ -54,13 +45,9 @@ impl SubApp<EventEnum, AppState> for Input {
         Constraint::Length(3)
     }
 
-    fn handle_input(&mut self, event: &mut EventEnum, _app_state: &mut AppState) {
-        match event {
-            _ => {}
-        }
-    }
+    fn handle_input(&mut self, _event: &mut EventEnum, _app_state: &mut AppState) {}
 
-    fn render(&self, frame: &mut Frame, area: Rect, _title: &str, app_state: &mut AppState) {
+    fn render(&self, frame: &mut Frame, area: Rect, app_state: &mut AppState) {
         let title = "Working directory".to_string();
 
         let cwd = app_state.current_directory.to_string_lossy().to_string();

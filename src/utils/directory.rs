@@ -6,24 +6,17 @@ use std::path::PathBuf;
 use strum::IntoEnumIterator;
 use walkdir::{DirEntry, WalkDir};
 
-use super::config::ExtensionArchive;
-use super::config::ExtensionFile;
+use super::config::{ExtensionArchive, ExtensionFile};
 
-pub fn get_files_sound(path: &Path) -> Vec<DirEntry> {
-    WalkDir::new(path)
-        .into_iter()
-        .filter_map(move |e| {
-            let dir_entry = e.as_ref().ok()?;
-            let file_extension = dir_entry.path().extension()?.to_string_lossy().to_string();
-            let matches_extension_archive =
-                ExtensionArchive::iter().any(|extension| extension.matches_str(&file_extension));
-            if dir_entry.file_type().is_file() && matches_extension_archive {
-                e.ok()
-            } else {
-                None
-            }
-        })
-        .collect_vec()
+/// The configured extension matching `path`, if any.
+pub fn extension_file(path: &Path) -> Option<ExtensionFile> {
+    let extension = path.extension()?.to_string_lossy().into_owned();
+    ExtensionFile::iter().find(|candidate| candidate.matches_str(&extension))
+}
+
+/// Whether the path carries an extension an audio backend can decode.
+pub fn is_playable(path: &Path) -> bool {
+    extension_file(path).is_some_and(|extension| extension.is_playable())
 }
 
 pub fn get_files_archive(path: &Path) -> Vec<DirEntry> {
@@ -45,7 +38,7 @@ pub fn get_files_archive(path: &Path) -> Vec<DirEntry> {
 
 /// Uncompress archives to cache directory
 pub fn process_archives(path: &String, cache_dir: &PathBuf) {
-    let files = get_files_sound(&PathBuf::from(path));
+    let files = get_files_archive(&PathBuf::from(path));
 
     files
         .iter()
