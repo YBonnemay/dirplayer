@@ -30,8 +30,10 @@ pub fn get_cache_dir() -> PathBuf {
     cache_dir
 }
 
+/// The music directory, or the home directory when the system does not declare
+/// one. Linux only knows about `XDG_MUSIC_DIR` if `xdg-user-dirs` set it up.
 pub fn get_audio_dir() -> PathBuf {
-    audio_dir().expect("Could not find audio directory.")
+    audio_dir().unwrap_or_else(get_home_dir)
 }
 
 pub fn get_home_dir() -> PathBuf {
@@ -61,6 +63,15 @@ pub struct Config {
     pub play_mode: PlayMode,
     pub log_level: LevelFilter,
     pub current_file: String,
+    /// How many directory levels the file listing walks, counted from the
+    /// current directory: `1` lists it alone, `2` also lists its
+    /// subdirectories' files, and so on.
+    #[serde(default = "default_search_depth")]
+    pub search_depth: usize,
+}
+
+fn default_search_depth() -> usize {
+    2
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, EnumIter)]
@@ -139,6 +150,7 @@ impl Default for Config {
             play_mode: PlayMode::Queue,
             log_level: LevelFilter::Info,
             current_file: "".to_string(),
+            search_depth: default_search_depth(),
         }
     }
 }

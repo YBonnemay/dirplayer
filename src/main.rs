@@ -4,7 +4,6 @@ mod backend_rodio;
 mod backend_trait;
 mod constants;
 mod directories;
-mod input;
 mod player;
 pub mod utils;
 use constants::SongState;
@@ -36,13 +35,6 @@ pub enum PlayRequest {
     CyclePlayMode,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq)]
-pub enum Focus {
-    #[default]
-    Directories,
-    Files,
-}
-
 #[derive(Default, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Status {
     Active,
@@ -52,14 +44,15 @@ pub enum Status {
 }
 
 pub struct AppState {
-    pub directory_filter: String,
-    pub file_filter: String,
-    pub focus: Focus,
+    /// Fuzzy filter applied to directories and files alike.
+    pub filter: String,
     pub current_directory: PathBuf,
-    /// Index of the highlighted line in the list currently in [`Focus`].
+    /// Index of the highlighted line, directories first then files.
     pub line_index: usize,
     /// Playable files of the current directory, in display order.
     pub visible_files: Vec<PathBuf>,
+    /// Line index of the first file, since directories own the rows above it.
+    pub first_file_line: usize,
     pub play_request: Option<PlayRequest>,
     pub now_playing: Option<PathBuf>,
     pub song_state: SongState,
@@ -68,12 +61,11 @@ pub struct AppState {
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            directory_filter: String::default(),
-            file_filter: String::default(),
-            focus: Focus::Directories,
+            filter: String::default(),
             current_directory: config::get_set_config().working_directory,
             line_index: 0,
             visible_files: Vec::new(),
+            first_file_line: 0,
             play_request: None,
             now_playing: None,
             song_state: SongState::Ended,
@@ -101,13 +93,18 @@ impl EventPump {
                 // tick -> currently no app event
                 Some(EventEnum::Tick)
             }
-            Some(Ok(ev)) = self.reader.next() => {
-                if let Event::Key(key) = ev {
-                    Some(EventEnum::Key(key))
-                } else {
-                    None
+            event = self.reader.next() => match event {
+                Some(Ok(Event::Key(key))) => Some(EventEnum::Key(key)),
+                // Resizes and the like carry nothing for the sub-apps, but the
+                // frame still has to be drawn against the new area. Only an
+                // exhausted reader ends the loop.
+                Some(Ok(_)) => Some(EventEnum::Tick),
+                Some(Err(error)) => {
+                    log::error!("Terminal event error: {error}");
+                    Some(EventEnum::Tick)
                 }
-            }
+                None => None,
+            },
         }
     }
 }
@@ -115,7 +112,6 @@ impl EventPump {
 cocotte::define_sub_apps! {
     event = EventEnum;
     state = AppState;
-    Input(input::Input) => input::Input::new(),
     Directories(directories::Directories) => directories::Directories::new(),
     Player(player::Player) => player::Player::new(),
 }

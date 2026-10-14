@@ -12,8 +12,8 @@ This emulates the behavior of <https://mpesch3.de/1by1.html>.
 [ratatui](https://github.com/ratatui/ratatui) application out of independent sub-apps. Each sub-app
 handles events and renders itself, while shared data lives in a single `AppState`:
 
-- `Input` : shows the working directory and the active filter
-- `Directories` : browses directories and playable files, and emits `PlayRequest`s
+- `Directories` : lists the current directory, ranger style, titled with that directory and the
+  active filter, and emits `PlayRequest`s
 - `Player` : owns the audio backend, plays requests and auto-advances when a song ends
 
 ## Audio backends
@@ -37,19 +37,43 @@ brew install mpv        # macOS
 apt install libmpv-dev  # Debian and derivatives
 ```
 
+On Linux, rodio builds against ALSA, so its headers are needed too:
+
+```sh
+apt install libasound2-dev pkg-config
+```
+
 `libmpv2-sys` asks the linker for `mpv` without saying where to look, so `.cargo/config.toml` adds
-Homebrew's library directory to the search path on macOS.
+Homebrew's library directory to the search path on macOS. Linux keeps `libmpv` on the default
+search path, and the file is target scoped, so it stays out of the way there.
+
+The listing is ranger style: one list holding the current directory's subdirectories, shown in blue
+with a trailing `/`, followed by its playable files. A single cursor walks the whole list, and
+typing filters it as a whole. Only files are played, queued and picked at random; directories are
+navigation only.
+
+Each row carries its date on the right, the creation date where the filesystem keeps one and the
+last modification otherwise. The date is coloured by its position within its own year on a rainbow
+gradient, so entries of the same period share a colour. Directories and files are each sorted by
+that date, most recent first, with directories still listed above files.
+
+The file walk is recursive. `search_depth` in the config counts directory levels from the current
+one, so `1` lists it alone and the default `2` also brings up the files of its subdirectories.
+Files found below the current directory are listed with their directories as a prefix, such as
+`live/encore.opus`, and are played, ordered, queued and picked at random like any other file.
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| `Up` / `Down` | Move in the current list |
-| `Tab` | Enter the highlighted directory |
-| `Enter` | Switch to the file list, then play (or pause/resume) the highlighted file |
-| `Backspace` | Delete a filter character, or go to the parent directory |
-| `Esc` | Go back to the directory list |
-| any character | Filter the current list |
+| `Up` / `Down` | Move the cursor through directories then files |
+| `PageUp` / `PageDown` | Move the cursor by a screenful |
+| `Right` | Enter the highlighted directory |
+| `Left` | Go to the parent directory |
+| `Enter` | Play the highlighted file |
+| `Backspace` | Delete a filter character |
+| `Esc` | Clear the filter |
+| any character | Filter the list |
 | `Ctrl-n` / `Ctrl-p` | Play the next / previous file |
 | `Ctrl-t` | Pause or resume |
 | `Ctrl-r` | Switch between queue and random play modes |
