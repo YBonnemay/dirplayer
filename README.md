@@ -50,7 +50,9 @@ search path, and the file is target scoped, so it stays out of the way there.
 The listing is ranger style: one list holding the current directory's subdirectories, shown in blue
 with a trailing `/`, followed by its playable files. A single cursor walks the whole list, and
 typing filters it as a whole. Only files are played, queued and picked at random; directories are
-navigation only.
+navigation only. The cursor is sticky across a filter: it stays on its entry while the filter is
+typed, and clearing the filter brings it back to the entry it started from, unless the cursor was
+moved in the meantime.
 
 Each row carries its date on the right, the creation date where the filesystem keeps one and the
 last modification otherwise. The date is coloured by its position within its own year on a rainbow
@@ -78,6 +80,11 @@ Files found below the current directory are listed with their directories as a p
 | `Ctrl-t` | Pause or resume |
 | `Ctrl-r` | Switch between queue and random play modes |
 | `Ctrl-c` / `Ctrl-d` | Quit |
+
+The cursor picks the next file to play: whenever it does not sit on the file playing, `Ctrl-n` and
+the autoplay that follows a song ending play the highlighted file rather than the one after the
+current song, random mode included. Starting a file brings the cursor back onto it, so playback
+resumes its own order on its own.
 
 `dirplayer` wants to be pure Rust, and uses mpv only for the formats rodio cannot decode. Plan is to
 switch to a pure Rust solution asap.

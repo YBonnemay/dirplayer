@@ -46,6 +46,9 @@ pub struct Directories {
     pub displayed_dates: Vec<Line<'static>>,
     /// Rows the list last rendered into, which is what a page scroll moves by.
     page_size: Cell<usize>,
+    /// Entry the cursor was on when the filter was opened, so editing the
+    /// filter keeps the cursor on it and clearing the filter comes back to it.
+    filter_anchor: Option<PathBuf>,
 }
 
 /// Width of a `%Y-%m-%d %H:%M:%S` stamp.
@@ -185,6 +188,7 @@ impl Directories {
             displayed: vec![],
             displayed_dates: vec![],
             page_size: Cell::new(1),
+            filter_anchor: None,
         }
     }
 
@@ -269,25 +273,75 @@ impl Directories {
         app_state.visible_files.get(index).cloned()
     }
 
+    /// The entry under the cursor, directory or file alike.
+    fn selected_entry(&self, app_state: &AppState) -> Option<PathBuf> {
+        self.selected_directory(app_state)
+            .or_else(|| self.selected_file(app_state))
+    }
+
+    /// Rebuilds the list and puts the cursor back on the anchored entry, or on
+    /// the first row when the filter leaves that entry out.
+    fn rebuild_filtered_view(&mut self, app_state: &mut AppState) {
+        self.rebuild_view(app_state);
+
+        app_state.line_index = self
+            .filter_anchor
+            .as_ref()
+            .and_then(|anchor| self.line_of(anchor, app_state))
+            .unwrap_or(0);
+
+        if app_state.filter.is_empty() {
+            self.filter_anchor = None;
+        }
+    }
+
+    /// Row `path` is displayed on, directories owning the rows above the files.
+    fn line_of(&self, path: &Path, app_state: &AppState) -> Option<usize> {
+        if let Some(index) = self
+            .visible_directories
+            .iter()
+            .position(|entry| entry == path)
+        {
+            return Some(index);
+        }
+
+        app_state
+            .visible_files
+            .iter()
+            .position(|entry| entry == path)
+            .map(|index| index + self.visible_directories.len())
+    }
+
     fn move_up(&mut self, app_state: &mut AppState) {
         if app_state.line_index > 0 {
             app_state.line_index -= 1;
         }
+        self.reanchor(app_state);
     }
 
     fn move_down(&mut self, app_state: &mut AppState) {
         if app_state.line_index + 1 < self.displayed.len() {
             app_state.line_index += 1;
         }
+        self.reanchor(app_state);
     }
 
     fn move_page_up(&mut self, app_state: &mut AppState) {
         app_state.line_index = app_state.line_index.saturating_sub(self.page_size.get());
+        self.reanchor(app_state);
     }
 
     fn move_page_down(&mut self, app_state: &mut AppState) {
         let last = self.displayed.len().saturating_sub(1);
         app_state.line_index = (app_state.line_index + self.page_size.get()).min(last);
+        self.reanchor(app_state);
+    }
+
+    /// Moving the cursor while filtering picks a new entry to come back to.
+    fn reanchor(&mut self, app_state: &AppState) {
+        if !app_state.filter.is_empty() {
+            self.filter_anchor = self.selected_entry(app_state);
+        }
     }
 
     /// Enters `path`, persists it as the working directory and rebuilds the list.
@@ -295,6 +349,7 @@ impl Directories {
         app_state.current_directory = path;
         app_state.filter.clear();
         app_state.line_index = 0;
+        self.filter_anchor = None;
 
         config::update_working_directory(&app_state.current_directory);
 
@@ -334,8 +389,7 @@ impl SubApp<EventEnum, AppState> for Directories {
                 code: KeyCode::Esc, ..
             }) => {
                 app_state.filter.clear();
-                app_state.line_index = 0;
-                self.rebuild_view(app_state);
+                self.rebuild_filtered_view(app_state);
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Up, ..
@@ -388,16 +442,17 @@ impl SubApp<EventEnum, AppState> for Directories {
                 ..
             }) => {
                 app_state.filter.pop();
-                app_state.line_index = 0;
-                self.rebuild_view(app_state);
+                self.rebuild_filtered_view(app_state);
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Char(c),
                 ..
             }) => {
+                if app_state.filter.is_empty() {
+                    self.filter_anchor = self.selected_entry(app_state);
+                }
                 app_state.filter.push(*c);
-                app_state.line_index = 0;
-                self.rebuild_view(app_state);
+                self.rebuild_filtered_view(app_state);
             }
             _ => {}
         }

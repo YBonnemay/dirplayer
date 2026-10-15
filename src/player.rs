@@ -116,9 +116,20 @@ impl Player {
     }
 
     /// Moves `offset` entries away from the file currently playing and plays it.
+    ///
+    /// A cursor sitting somewhere else than on the file playing wins over that
+    /// order: moving forward then plays the highlighted file.
     fn step(&mut self, offset: isize, app_state: &mut AppState) {
         let length = app_state.visible_files.len();
         if length == 0 {
+            return;
+        }
+
+        if offset > 0
+            && let Some(path) = focused_file(app_state)
+            && app_state.now_playing.as_deref() != Some(path.as_path())
+        {
+            self.play(&path, app_state);
             return;
         }
 
@@ -202,6 +213,14 @@ impl Player {
 
         self.step(1, app_state);
     }
+}
+
+/// The file under the cursor, if the cursor is on a file row at all.
+fn focused_file(app_state: &AppState) -> Option<std::path::PathBuf> {
+    let index = app_state
+        .line_index
+        .checked_sub(app_state.first_file_line)?;
+    app_state.visible_files.get(index).cloned()
 }
 
 fn persist_current_file(file_name: &str) {
