@@ -50,7 +50,8 @@ search path, and the file is target scoped, so it stays out of the way there.
 The listing is ranger style: one list holding the current directory's subdirectories, shown in blue
 with a trailing `/`, followed by its playable files. A single cursor walks the whole list, and
 typing filters it as a whole. Only files are played, queued and picked at random; directories are
-navigation only. The cursor is sticky across a filter: it stays on its entry while the filter is
+navigation only. The cursor starts on the file played last, when that file is still in the listing.
+The cursor is sticky across a filter: it stays on its entry while the filter is
 typed, and clearing the filter brings it back to the entry it started from, unless the cursor was
 moved in the meantime.
 

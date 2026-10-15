@@ -344,6 +344,19 @@ impl Directories {
         }
     }
 
+    /// Starts the cursor on the file played last time, when that file is still
+    /// part of the listing.
+    fn focus_last_played(&self, app_state: &mut AppState) {
+        let last_played = config::get_config().current_file;
+        if last_played.is_empty() {
+            return;
+        }
+
+        if let Some(line) = self.line_of(Path::new(&last_played), app_state) {
+            app_state.line_index = line;
+        }
+    }
+
     /// Enters `path`, persists it as the working directory and rebuilds the list.
     fn set_directory(&mut self, path: PathBuf, app_state: &mut AppState) {
         app_state.current_directory = path;
@@ -371,6 +384,7 @@ impl SubApp<EventEnum, AppState> for Directories {
             EventEnum::Setup => {
                 self.refresh_entries(&app_state.current_directory);
                 self.rebuild_view(app_state);
+                self.focus_last_played(app_state);
             }
             EventEnum::Key(KeyEvent {
                 code: KeyCode::Char(c),
