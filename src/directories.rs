@@ -473,9 +473,10 @@ impl SubApp<EventEnum, AppState> for Directories {
     }
 
     fn render(&self, frame: &mut Frame, area: Rect, app_state: &mut AppState) {
-        // The borders eat two rows, and a page always has to move by at least one.
+        // The title row eats one row, the player owning the line closing the
+        // list, and a page always has to move by at least one.
         self.page_size
-            .set(usize::from(area.height.saturating_sub(2)).max(1));
+            .set(usize::from(area.height.saturating_sub(1)).max(1));
 
         let mut title = format!(
             "Current Directory {}",
@@ -487,7 +488,8 @@ impl SubApp<EventEnum, AppState> for Directories {
         }
 
         let block = Block::default()
-            .borders(Borders::ALL)
+            // The player below draws the line closing this one.
+            .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
             .title(title)
             .border_style(Style::new().bold());
 
@@ -517,7 +519,7 @@ impl SubApp<EventEnum, AppState> for Directories {
             *state.offset_mut() = centered_offset(
                 selected,
                 self.displayed.len(),
-                usize::from(area.height.saturating_sub(2)).max(1),
+                usize::from(area.height.saturating_sub(1)).max(1),
             );
         }
 

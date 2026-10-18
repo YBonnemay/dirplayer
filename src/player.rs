@@ -12,7 +12,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use std::path::Path;
 
 /// The backend a file should be played with.
@@ -274,12 +274,16 @@ impl SubApp<EventEnum, AppState> for Player {
             Span::styled(mode, Style::default().fg(Color::Cyan)),
         ]);
 
-        let block = Block::default().borders(Borders::ALL).title("Player");
+        // Only the top border, which doubles as the line closing the listing
+        // above, and a padding lining the text up with the rows of that listing.
+        let block = Block::default()
+            .borders(Borders::TOP)
+            .padding(Padding::horizontal(1));
         frame.render_widget(Paragraph::new(line).block(block), area);
     }
 
     fn constraints(&self) -> Constraint {
-        Constraint::Length(3)
+        Constraint::Length(2)
     }
 }
 
