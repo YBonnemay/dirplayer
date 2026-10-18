@@ -72,7 +72,7 @@ Files found below the current directory are listed with their directories as a p
 | `Up` / `Down` | Move the cursor through directories then files |
 | `PageUp` / `PageDown` | Move the cursor by a screenful |
 | `Right` | Enter the highlighted directory |
-| `Left` | Go to the parent directory |
+| `Left` | Go to the parent directory, cursor on the directory just left |
 | `Enter` | Play the highlighted file |
 | `Backspace` | Delete a filter character |
 | `Esc` | Clear the filter |

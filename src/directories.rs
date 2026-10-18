@@ -370,10 +370,17 @@ impl Directories {
         self.rebuild_view(app_state);
     }
 
+    /// Goes up one level, leaving the cursor on the directory just left.
     fn go_to_parent(&mut self, app_state: &mut AppState) {
-        let parent = app_state.current_directory.parent().map(Path::to_path_buf);
-        if let Some(parent) = parent {
-            self.set_directory(parent, app_state);
+        let left = app_state.current_directory.clone();
+        let Some(parent) = left.parent().map(Path::to_path_buf) else {
+            return;
+        };
+
+        self.set_directory(parent, app_state);
+
+        if let Some(line) = self.line_of(&left, app_state) {
+            app_state.line_index = line;
         }
     }
 }
